@@ -23,6 +23,55 @@
 </p>
 </div>
 
+---
+
+<div align="center">
+
+### 🚀 Introducing [Aegis AI](https://www.sharpai.org) — The World's First AI Home Security Agent
+
+**GPT + Local VLM powered security agent for your Mac and PC. Always connected to your mobile via Discord / Telegram / Slack.**
+
+**Aegis AI** is the next-generation product from SharpAI — a desktop security agent that connects to any camera, understands scenes using Vision Language Models, and talks to your family through the apps they already use. DeepCamera will be integrated into Aegis AI as its detection and model training engine.
+
+[**🌐 Visit www.sharpai.org**](https://www.sharpai.org) · [**📦 Download Aegis AI**](https://github.com/SharpAI/DeepCamera/releases/tag/Aegis)
+
+</div>
+
+<table>
+<tr>
+<td width="50%">
+<p align="center"><b>Browse & Run VLMs Locally from HuggingFace</b></p>
+<img src="screenshots/aegis-vlm-browser.png" alt="Aegis AI — Browse and download vision language models from HuggingFace" width="100%">
+<p align="center"><em>Download and run SmolVLM2, Qwen-VL, LFM2.5, LLaVA, MiniCPM-V directly on your machine. Even a Mac M1 Mini 8GB works.</em></p>
+</td>
+<td width="50%">
+<p align="center"><b>Chat with your AI Security Agent</b></p>
+<img src="screenshots/aegis-chat-agent.png" alt="Aegis AI — Ask your agent what happened and get real answers" width="100%">
+<p align="center"><em>Ask "anyone entering the room?" — Aegis searches your footage and gives you a real answer with timestamps and clips.</em></p>
+</td>
+</tr>
+</table>
+
+---
+
+### 🏗️ The SharpAI Ecosystem
+
+| | **DeepCamera** (This Repo) | **Aegis AI** |
+|---|---|---|
+| **Role** | Open-source AI/ML engine | AI Security Agent |
+| **Frontend UI** | No (CLI + Docker) | Full desktop app |
+| **What it does** | Object detection, person REID, model training, feature extraction | VLM scene understanding, smart alerts, chat interface, unified timeline |
+| **Cameras** | Via Home-Assistant (RTSP, Blink, Nest) | Direct: Ring, Blink, RTSP/ONVIF, webcam, iPhone, Android |
+| **AI Models** | YOLOv7, FastReID, custom training | GPT Vision, local VLMs via llama-server, HuggingFace models |
+| **LLM / VLM** | No | Yes — local + cloud |
+| **Runs on** | Docker on edge devices & desktops | Native desktop app (Mac, Windows, Linux) |
+| **Alerts** | No | Slack, Discord, Telegram |
+| **Installation** | Docker + CLI setup | One-click download |
+
+> **DeepCamera** is being integrated into Aegis AI as the detection and model training layer. DeepCamera will remain fully open-source — handling object detection, person re-identification, and custom model training — while Aegis AI provides the agent layer: VLM-powered scene understanding, camera connections, agentic memory, and smart notifications.
+
+---
+
 ## 🎯 Overview
 
 DeepCamera transforms traditional surveillance cameras and CCTV/NVR systems into intelligent monitoring solutions using advanced machine learning technologies. It provides:
