@@ -56,7 +56,7 @@
 
 ### 🏗️ The SharpAI Ecosystem
 
-| | **DeepCamera** (This Repo) | **Aegis AI** |
+| | **DeepCamera** (This Repo) | **SharpAI Aegis** |
 |---|---|---|
 | **Role** | Open-source AI/ML engine | AI Security Agent |
 | **Frontend UI** | No (CLI + Docker) | Full desktop app |
