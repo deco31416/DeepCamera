@@ -54,26 +54,18 @@
 
 ---
 
-### 🏗️ The SharpAI Ecosystem
-
-**DeepCamera** (this repo) is the open-source AI engine — object detection, person REID, model training, all running locally via Docker or CLI.
-
-**[SharpAI Aegis](https://www.sharpai.org)** is the desktop app that wraps DeepCamera with a full GUI, conversational agent chat, VLM scene understanding, and messaging via Slack / Discord / Telegram. [Download it here](https://github.com/SharpAI/DeepCamera/releases/tag/Aegis).
-
-> Use DeepCamera standalone via CLI, or pair it with SharpAI Aegis for the full desktop experience.
-
 ### 🗺️ DeepCamera Roadmap
 
 DeepCamera is evolving into a full AI skill platform. Planned features:
 
-- ⬆️ **Upgrade object detection** to 2026 state-of-the-art YOLO models
-- 🧠 **VLM analysis backend** — offline scene understanding of recorded clips using vision language models
-- 🎨 **AI Studios backend** — SAM2 interactive segmentation, DINOv3 grounding, depth estimation, feature extraction
-- 📷 **Direct camera provider plugins** — Blink, Ring, Eufy, Reolink, Tapo, RTSP/ONVIF (beyond Home Assistant)
-- 💬 **Messaging channel plugins** — Telegram, Discord, Slack, WhatsApp
-- 🔔 **Automation triggers** — MQTT, webhooks, Home Assistant events
-- 📡 **go2rtc streaming** — RTSP to WebRTC live view
-- 🔌 **Skill architecture** — pluggable `SKILL.md` interface for all capabilities
+- [ ] ⬆️ **Upgrade object detection** to 2026 state-of-the-art YOLO models
+- [ ] 🧠 **VLM analysis backend** — offline scene understanding of recorded clips using vision language models
+- [ ] 🎨 **AI Studios backend** — SAM2 interactive segmentation, DINOv3 grounding, depth estimation, feature extraction
+- [ ] 📷 **Direct camera provider plugins** — Blink, Ring, Eufy, Reolink, Tapo, RTSP/ONVIF (beyond Home Assistant)
+- [ ] 💬 **Messaging channel plugins** — Telegram, Discord, Slack, WhatsApp
+- [ ] 🔔 **Automation triggers** — MQTT, webhooks, Home Assistant events
+- [ ] 📡 **go2rtc streaming** — RTSP to WebRTC live view
+- [ ] 🔌 **Skill architecture** — pluggable `SKILL.md` interface for all capabilities
 
 ---
 
