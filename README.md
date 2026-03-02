@@ -65,7 +65,7 @@ DeepCamera is evolving into a full AI skill platform. Planned features:
 - [ ] **Messaging channel plugins** — Telegram, Discord, Slack, WhatsApp
 - [ ] **Automation triggers** — MQTT, webhooks, Home Assistant events
 - [ ] **go2rtc streaming** — RTSP to WebRTC live view
-- [ ] **Skill architecture** — pluggable `SKILL.md` interface for all capabilities
+- [x] **Skill architecture** — pluggable `SKILL.md` interface for all capabilities
 
 ---
 
