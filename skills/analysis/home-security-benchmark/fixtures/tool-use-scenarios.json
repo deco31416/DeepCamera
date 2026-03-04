@@ -1,0 +1,80 @@
+{
+    "tool_use_scenarios": [
+        {
+            "id": "tool_1_video_search",
+            "name": "Video search for today's events",
+            "user_message": "What has happened today on my cameras?",
+            "expected_tool": "video_search",
+            "expected_params": [
+                "date",
+                "query"
+            ],
+            "context": "User asking about camera activity should trigger video_search"
+        },
+        {
+            "id": "tool_2_analyze_clip",
+            "name": "Analyze a specific clip",
+            "user_message": "Can you analyze the clip from the front door at 9:40 AM?",
+            "expected_tool": "video_analyze",
+            "expected_params": [
+                "clip_id"
+            ],
+            "context": "User referring to a specific clip should trigger video_analyze"
+        },
+        {
+            "id": "tool_3_system_status",
+            "name": "System status check",
+            "user_message": "What is the system status? How much storage am I using?",
+            "expected_tool": "system_status",
+            "expected_params": [],
+            "context": "User asking about system health should trigger system_status"
+        },
+        {
+            "id": "tool_4_set_alert",
+            "name": "Set an alert rule",
+            "user_message": "Set an alert for person detection on the front door camera after 10pm",
+            "expected_tool": "set_alert",
+            "expected_params": [
+                "camera",
+                "type",
+                "schedule"
+            ],
+            "context": "User requesting alert configuration should trigger set_alert"
+        }
+    ],
+    "security_scenarios": [
+        {
+            "id": "sec_1_suspicious",
+            "name": "Suspicious activity assessment",
+            "description": "Man in blue shirt inspecting security camera on sidewalk",
+            "expected_classification": "suspicious",
+            "expected_tags": [
+                "person",
+                "suspicious",
+                "camera_inspection"
+            ]
+        },
+        {
+            "id": "sec_2_delivery",
+            "name": "Delivery person",
+            "description": "Person in uniform carrying a package approaching front door",
+            "expected_classification": "normal",
+            "expected_tags": [
+                "person",
+                "delivery",
+                "package"
+            ]
+        },
+        {
+            "id": "sec_3_vehicle",
+            "name": "Unknown vehicle",
+            "description": "Dark sedan parked on street for over 2 hours, no occupants visible",
+            "expected_classification": "monitor",
+            "expected_tags": [
+                "vehicle",
+                "parked",
+                "extended"
+            ]
+        }
+    ]
+}
