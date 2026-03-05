@@ -174,7 +174,7 @@ footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--border
 <div class="container">
 
 <h1>🛡️ Home Security AI Benchmark</h1>
-<p class="subtitle">${model.name || 'Unknown Model'} — ${new Date(latest.timestamp).toLocaleDateString()} ${new Date(latest.timestamp).toLocaleTimeString()}</p>
+<p class="subtitle">${model.name || 'Unknown Model'}${model.vlm ? ' + VLM: ' + model.vlm : ''} — ${new Date(latest.timestamp).toLocaleDateString()} ${new Date(latest.timestamp).toLocaleTimeString()}</p>
 
 <div class="hero">
     <div class="stat-card">
@@ -195,7 +195,7 @@ footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--border
     <div class="stat-card">
         <div class="label">Model</div>
         <div class="value" style="font-size:1rem">${model.name || '?'}</div>
-        <div class="sub">${system.cpu || '?'}</div>
+        <div class="sub">${model.vlm ? 'VLM: ' + model.vlm : system.cpu || '?'}</div>
     </div>
 </div>
 
