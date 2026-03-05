@@ -14,12 +14,41 @@
         {
             "id": "tool_2_analyze_clip",
             "name": "Analyze a specific clip",
-            "user_message": "Can you analyze these clips from the front door camera? I want a detailed breakdown of what happened.",
+            "user_message": "Check this footage from the front door and tell me what happened in these recordings",
             "expected_tool": "video_analyze",
             "expected_params": [
                 "camera"
             ],
-            "context": "User asking for deep analysis of clips should trigger video_analyze"
+            "context": "User asking to check footage / tell what happened in recordings should trigger video_analyze",
+            "history": [
+                {
+                    "role": "user",
+                    "content": "What happened today at the front door?"
+                },
+                {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "video_search",
+                                "arguments": "{\"query\":\"front door\",\"time_range\":\"today\"}"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_1",
+                    "content": "[Found: 2 clips]\n1. [ring] [Front Door] Mar 5, 9:40 AM (3 hours ago): Person approaching | ID: ring_579322485_2026-03-05\n2. [ring] [Front Door] Mar 5, 8:15 AM (4 hours ago): Motion detected | ID: ring_579322486_2026-03-05"
+                },
+                {
+                    "role": "assistant",
+                    "content": "I found 2 clips from the front door today. Would you like me to analyze them?"
+                }
+            ]
         },
         {
             "id": "tool_3_system_status",
