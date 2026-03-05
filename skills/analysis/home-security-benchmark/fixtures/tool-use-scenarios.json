@@ -6,7 +6,7 @@
             "user_message": "What has happened today on my cameras?",
             "expected_tool": "video_search",
             "expected_params": [
-                "date",
+                "time_range",
                 "query"
             ],
             "context": "User asking about camera activity should trigger video_search"
@@ -14,12 +14,12 @@
         {
             "id": "tool_2_analyze_clip",
             "name": "Analyze a specific clip",
-            "user_message": "Can you analyze the clip from the front door at 9:40 AM?",
+            "user_message": "Can you analyze these clips from the front door camera? I want a detailed breakdown of what happened.",
             "expected_tool": "video_analyze",
             "expected_params": [
-                "clip_id"
+                "camera"
             ],
-            "context": "User referring to a specific clip should trigger video_analyze"
+            "context": "User asking for deep analysis of clips should trigger video_analyze"
         },
         {
             "id": "tool_3_system_status",
@@ -30,16 +30,37 @@
             "context": "User asking about system health should trigger system_status"
         },
         {
-            "id": "tool_4_set_alert",
-            "name": "Set an alert rule",
-            "user_message": "Set an alert for person detection on the front door camera after 10pm",
-            "expected_tool": "set_alert",
+            "id": "tool_4_event_subscribe",
+            "name": "Subscribe to alert events",
+            "user_message": "Alert me when there's a person detected on the front door camera after 10pm",
+            "expected_tool": "event_subscribe",
             "expected_params": [
+                "eventType",
                 "camera",
-                "type",
-                "schedule"
+                "condition"
             ],
-            "context": "User requesting alert configuration should trigger set_alert"
+            "context": "User requesting proactive alerts should trigger event_subscribe"
+        },
+        {
+            "id": "tool_5_video_send",
+            "name": "Send a video clip",
+            "user_message": "Send me the video clip from the front door. The one with clip ID ring_579322485_2026-03-04",
+            "expected_tool": "video_send",
+            "expected_params": [
+                "clip_id"
+            ],
+            "context": "User asking to send/share a video should trigger video_send"
+        },
+        {
+            "id": "tool_6_video_search_specific",
+            "name": "Search for specific motion events",
+            "user_message": "Were there any cars in the driveway yesterday?",
+            "expected_tool": "video_search",
+            "expected_params": [
+                "query",
+                "time_range"
+            ],
+            "context": "User asking about specific events in a time range should trigger video_search"
         }
     ],
     "security_scenarios": [
