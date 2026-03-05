@@ -176,12 +176,12 @@ footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--border
 <div class="container">
 
 <h1>🛡️ Home Security AI Benchmark</h1>
-<p class="subtitle">${model.name || 'Unknown Model'}${model.vlm ? ' + VLM: ' + model.vlm : ''} — ${new Date(latest.timestamp).toLocaleDateString()} ${new Date(latest.timestamp).toLocaleTimeString()}</p>
+<p class="subtitle">${new Date(latest.timestamp).toLocaleDateString()} ${new Date(latest.timestamp).toLocaleTimeString()}</p>
 
 <div class="hero">
     <div class="stat-card">
         <div class="label">Pass Rate</div>
-        <div class="value" style="color:${totals.failed === 0 ? 'var(--green)' : totals.passed > totals.failed ? 'var(--yellow)' : 'var(--red)'}">${passRate}%</div>
+        <div class="value" style="color:${totals.failed === 0 ? 'var(--green)' : totals.passed > totals.failed ? 'var(--yellow)' : 'var(--red)'}"> ${passRate}%</div>
         <div class="sub">${totals.passed}/${totals.total} tests passed</div>
     </div>
     <div class="stat-card">
@@ -195,10 +195,15 @@ footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--border
         <div class="sub">${tokPerSec} tok/s</div>
     </div>
     <div class="stat-card">
-        <div class="label">Model</div>
+        <div class="label">LLM</div>
         <div class="value" style="font-size:1rem">${model.name || '?'}</div>
-        <div class="sub">${model.vlm ? 'VLM: ' + model.vlm : system.cpu || '?'}</div>
-    </div>
+        <div class="sub">${system.cpu || '?'}</div>
+    </div>${model.vlm ? `
+    <div class="stat-card">
+        <div class="label">VLM</div>
+        <div class="value" style="font-size:1rem">${model.vlm}</div>
+        <div class="sub">Vision Model</div>
+    </div>` : ''}
 </div>
 
 <h2>Suite Summary</h2>
