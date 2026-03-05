@@ -503,10 +503,12 @@ suite('🔧 Tool Use', async () => {
 
     for (const s of scenarios.tool_use_scenarios) {
         await test(`${s.name} → ${s.expected_tool}`, async () => {
-            const r = await llmCall([
-                { role: 'system', content: 'You are Aegis, a home security AI assistant. Use the available tools to answer user questions. Call the most appropriate tool.' },
+            const messages = [
+                { role: 'system', content: 'You are Aegis, a home security AI assistant. Use the available tools to answer user questions. Always call the most appropriate tool — never decline to use a tool.' },
+                ...(s.history || []),
                 { role: 'user', content: s.user_message },
-            ], { tools: AEGIS_TOOLS });
+            ];
+            const r = await llmCall(messages, { tools: AEGIS_TOOLS });
 
             // Check if model returned tool calls
             if (r.toolCalls && r.toolCalls.length > 0) {
