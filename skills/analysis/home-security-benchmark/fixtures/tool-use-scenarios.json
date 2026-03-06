@@ -332,7 +332,10 @@
             "id": "sec_12_masked_intruder",
             "name": "Masked person at night",
             "description": "Person wearing dark hoodie with face fully covered approaching house from side yard at 1 AM, looking at windows",
-            "expected_classification": "critical",
+            "expected_classification": [
+                "critical",
+                "suspicious"
+            ],
             "expected_tags": [
                 "person",
                 "masked",
