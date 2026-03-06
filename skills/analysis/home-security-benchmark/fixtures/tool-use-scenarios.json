@@ -159,6 +159,48 @@
                 "camera"
             ],
             "context": "Animal alert request should trigger event_subscribe with animal type"
+        },
+        {
+            "id": "tool_13_negative",
+            "name": "No tool needed — casual farewell",
+            "user_message": "Thanks, that's all for now! Have a good night.",
+            "expected_tool": "__none__",
+            "expected_params": [],
+            "context": "Casual farewell should NOT trigger any tool call — model should respond naturally"
+        },
+        {
+            "id": "tool_14_multi_step",
+            "name": "Multi-step: search then send",
+            "user_message": "Find clips of people at the front door today and send me the most recent one",
+            "expected_tool": "video_search",
+            "expected_params": [
+                "query",
+                "time_range",
+                "camera"
+            ],
+            "context": "Multi-step request should trigger video_search first (need results before sending)"
+        },
+        {
+            "id": "tool_15_historical_compare",
+            "name": "Historical activity comparison",
+            "user_message": "Was there more activity today compared to yesterday?",
+            "expected_tool": "video_search",
+            "expected_params": [
+                "time_range"
+            ],
+            "context": "Comparing activity across days requires video_search (model must search to compare)"
+        },
+        {
+            "id": "tool_16_camera_rename",
+            "name": "Search with user-renamed camera",
+            "user_message": "I renamed my front camera to 'Main Entrance'. Search for motion there today.",
+            "expected_tool": "video_search",
+            "expected_params": [
+                "query",
+                "time_range",
+                "camera"
+            ],
+            "context": "User-renamed camera should still trigger video_search with camera param using user's name"
         }
     ],
     "security_scenarios": [
@@ -252,6 +294,51 @@
                 "delivery",
                 "package"
             ]
+        },
+        {
+            "id": "sec_9_solicitor",
+            "name": "Door-to-door solicitor",
+            "description": "Person in business attire carrying clipboard approaching front door during daytime, appears to be going door-to-door in neighborhood",
+            "expected_classification": "monitor",
+            "expected_tags": [
+                "person",
+                "solicitor",
+                "daytime"
+            ]
+        },
+        {
+            "id": "sec_10_utility_worker",
+            "name": "Utility worker on property",
+            "description": "Person wearing high-visibility vest and hard hat inspecting utility meter box on side of house during business hours",
+            "expected_classification": "normal",
+            "expected_tags": [
+                "person",
+                "utility",
+                "worker"
+            ]
+        },
+        {
+            "id": "sec_11_kids_night",
+            "name": "Neighborhood kids playing at dusk",
+            "description": "Group of children playing tag in neighbor's visible front yard at 8:30 PM, streetlights on, clearly playing",
+            "expected_classification": "normal",
+            "expected_tags": [
+                "person",
+                "children",
+                "play"
+            ]
+        },
+        {
+            "id": "sec_12_masked_intruder",
+            "name": "Masked person at night",
+            "description": "Person wearing dark hoodie with face fully covered approaching house from side yard at 1 AM, looking at windows",
+            "expected_classification": "critical",
+            "expected_tags": [
+                "person",
+                "masked",
+                "night",
+                "trespassing"
+            ]
         }
     ],
     "dedup_scenarios": [
@@ -334,6 +421,54 @@
             "age_sec": 45,
             "expected_duplicate": true,
             "name": "Delivery person ring-drop-leave → same event"
+        },
+        {
+            "id": "dedup_6_weather_change",
+            "current": {
+                "camera": "Backyard",
+                "type": "motion",
+                "summary": "Backyard scene in darkness, motion from tree branches swaying in wind"
+            },
+            "recent": {
+                "camera": "Backyard",
+                "type": "motion",
+                "summary": "Backyard scene at sunset, motion from tree branches swaying"
+            },
+            "age_sec": 3600,
+            "expected_duplicate": false,
+            "name": "Lighting change (sunset→night) same scene → unique"
+        },
+        {
+            "id": "dedup_7_same_person_continuous",
+            "current": {
+                "camera": "Front Door",
+                "type": "motion",
+                "summary": "Man carrying grocery bags from car to front door"
+            },
+            "recent": {
+                "camera": "Front Door",
+                "type": "motion",
+                "summary": "Man unloading grocery bags from car trunk in driveway"
+            },
+            "age_sec": 180,
+            "expected_duplicate": true,
+            "name": "Same person continuous activity (unloading→carrying) → duplicate"
+        },
+        {
+            "id": "dedup_8_group_split",
+            "current": {
+                "camera": "Front Door",
+                "type": "motion",
+                "summary": "One person leaving house alone, walking to parked car"
+            },
+            "recent": {
+                "camera": "Front Door",
+                "type": "motion",
+                "summary": "Three people arriving at front door together, entering house"
+            },
+            "age_sec": 2700,
+            "expected_duplicate": false,
+            "name": "Group arrives, individual leaves later → unique"
         }
     ],
     "narrative_scenarios": [
