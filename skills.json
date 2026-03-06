@@ -16,6 +16,591 @@
   },
   "skills": [
     {
+      "id": "yolo-detection-2026",
+      "name": "YOLO Object Detection (2026)",
+      "description": "State-of-the-art real-time object detection. Person, vehicle, animal, and 80+ COCO class detection.",
+      "version": "1.0.0",
+      "category": "detection",
+      "path": "skills/detection/yolo-detection-2026",
+      "tags": [
+        "yolo",
+        "detection",
+        "person",
+        "vehicle",
+        "real-time"
+      ],
+      "platforms": [
+        "linux-x64",
+        "linux-arm64",
+        "darwin-arm64",
+        "darwin-x64",
+        "win-x64"
+      ],
+      "requirements": {
+        "python": ">=3.9",
+        "gpu": "optional",
+        "ram_gb": 2
+      },
+      "capabilities": [
+        "live_detection"
+      ],
+      "ui_unlocks": [
+        "detection_overlay",
+        "alert_config"
+      ]
+    },
+    {
+      "id": "dinov3-grounding",
+      "name": "DINOv3 Visual Grounding",
+      "description": "Open-vocabulary detection — describe what to find in natural language, DINOv3 locates it.",
+      "version": "1.0.0",
+      "category": "detection",
+      "path": "skills/detection/dinov3-grounding",
+      "tags": [
+        "dinov3",
+        "grounding",
+        "open-vocabulary",
+        "features"
+      ],
+      "platforms": [
+        "linux-x64",
+        "linux-arm64",
+        "darwin-arm64",
+        "darwin-x64"
+      ],
+      "requirements": {
+        "python": ">=3.9",
+        "gpu": "recommended",
+        "ram_gb": 4
+      },
+      "capabilities": [
+        "live_detection",
+        "feature_extraction"
+      ],
+      "ui_unlocks": [
+        "dinov3_studio",
+        "annotation_grounding"
+      ]
+    },
+    {
+      "id": "person-recognition",
+      "name": "Person Recognition (ReID)",
+      "description": "Track and re-identify individuals across cameras using appearance embeddings.",
+      "version": "1.0.0",
+      "category": "detection",
+      "path": "skills/detection/person-recognition",
+      "tags": [
+        "reid",
+        "person",
+        "tracking",
+        "identification"
+      ],
+      "platforms": [
+        "linux-x64",
+        "linux-arm64",
+        "darwin-arm64",
+        "darwin-x64"
+      ],
+      "requirements": {
+        "python": ">=3.9",
+        "gpu": "optional",
+        "ram_gb": 2
+      },
+      "capabilities": [
+        "live_detection"
+      ],
+      "ui_unlocks": [
+        "identity_gallery",
+        "reappearance_alerts"
+      ]
+    },
+    {
+      "id": "vlm-scene-analysis",
+      "name": "VLM Scene Analysis",
+      "description": "Offline scene understanding using vision language models — describe what happened in clips.",
+      "version": "1.0.0",
+      "category": "analysis",
+      "path": "skills/analysis/vlm-scene-analysis",
+      "tags": [
+        "vlm",
+        "scene",
+        "description",
+        "offline",
+        "search"
+      ],
+      "platforms": [
+        "linux-x64",
+        "darwin-arm64",
+        "darwin-x64"
+      ],
+      "requirements": {
+        "python": ">=3.9",
+        "gpu": "recommended",
+        "ram_gb": 4
+      },
+      "capabilities": [
+        "offline_analysis"
+      ],
+      "ui_unlocks": [
+        "analysis_badges",
+        "search_by_description"
+      ]
+    },
+    {
+      "id": "sam2-segmentation",
+      "name": "SAM2 Interactive Segmentation",
+      "description": "Click-to-segment using Meta's Segment Anything 2 — pixel-perfect masks for annotation.",
+      "version": "1.0.0",
+      "category": "analysis",
+      "path": "skills/analysis/sam2-segmentation",
+      "tags": [
+        "sam2",
+        "segmentation",
+        "masks",
+        "annotation"
+      ],
+      "platforms": [
+        "linux-x64",
+        "darwin-arm64",
+        "darwin-x64"
+      ],
+      "requirements": {
+        "python": ">=3.9",
+        "gpu": "recommended",
+        "ram_gb": 4
+      },
+      "capabilities": [
+        "live_transform"
+      ],
+      "ui_unlocks": [
+        "sam2_studio",
+        "annotation_segmentation"
+      ]
+    },
+    {
+      "id": "depth-estimation",
+      "name": "Depth Estimation",
+      "description": "Real-time monocular depth maps using Depth Anything v2.",
+      "version": "1.0.0",
+      "category": "transformation",
+      "path": "skills/transformation/depth-estimation",
+      "tags": [
+        "depth",
+        "3d",
+        "spatial",
+        "overlay"
+      ],
+      "platforms": [
+        "linux-x64",
+        "darwin-arm64",
+        "darwin-x64"
+      ],
+      "requirements": {
+        "python": ">=3.9",
+        "gpu": "recommended",
+        "ram_gb": 3
+      },
+      "capabilities": [
+        "live_transform"
+      ],
+      "ui_unlocks": [
+        "depth_studio"
+      ]
+    },
+    {
+      "id": "dataset-annotation",
+      "name": "Dataset Annotation",
+      "description": "AI-assisted dataset creation — bbox, SAM2, DINOv3 annotation with COCO export.",
+      "version": "1.0.0",
+      "category": "annotation",
+      "path": "skills/annotation/dataset-annotation",
+      "tags": [
+        "annotation",
+        "coco",
+        "dataset",
+        "labeling",
+        "training"
+      ],
+      "platforms": [
+        "linux-x64",
+        "linux-arm64",
+        "darwin-arm64",
+        "darwin-x64",
+        "win-x64"
+      ],
+      "requirements": {
+        "python": ">=3.9",
+        "gpu": "optional",
+        "ram_gb": 2
+      },
+      "capabilities": [
+        "annotation"
+      ],
+      "ui_unlocks": [
+        "annotation_view",
+        "dataset_explorer",
+        "training_pipeline"
+      ]
+    },
+    {
+      "id": "camera-provider-eufy",
+      "name": "Eufy Cameras",
+      "description": "Eufy camera integration — local RTSP streaming and event clips.",
+      "version": "1.0.0",
+      "category": "camera-providers",
+      "path": "skills/camera-providers/eufy",
+      "tags": [
+        "eufy",
+        "anker",
+        "camera",
+        "rtsp",
+        "local"
+      ],
+      "platforms": [
+        "linux-x64",
+        "linux-arm64",
+        "darwin-arm64",
+        "darwin-x64",
+        "win-x64"
+      ],
+      "requirements": {
+        "python": ">=3.9",
+        "ram_gb": 1
+      },
+      "capabilities": [
+        "clip_feed",
+        "discover_cameras",
+        "live_stream"
+      ],
+      "ui_unlocks": [
+        "camera_timeline",
+        "clip_feed",
+        "live_view"
+      ]
+    },
+    {
+      "id": "camera-provider-reolink",
+      "name": "Reolink Cameras",
+      "description": "Reolink camera integration — RTSP, HTTP API, ONVIF.",
+      "version": "1.0.0",
+      "category": "camera-providers",
+      "path": "skills/camera-providers/reolink",
+      "tags": [
+        "reolink",
+        "camera",
+        "rtsp",
+        "onvif",
+        "poe"
+      ],
+      "platforms": [
+        "linux-x64",
+        "linux-arm64",
+        "darwin-arm64",
+        "darwin-x64",
+        "win-x64"
+      ],
+      "requirements": {
+        "python": ">=3.9",
+        "ram_gb": 1
+      },
+      "capabilities": [
+        "clip_feed",
+        "discover_cameras",
+        "live_stream",
+        "snapshot"
+      ],
+      "ui_unlocks": [
+        "camera_timeline",
+        "clip_feed",
+        "live_view"
+      ]
+    },
+    {
+      "id": "camera-provider-tapo",
+      "name": "Tapo Cameras",
+      "description": "TP-Link Tapo camera integration — RTSP and ONVIF.",
+      "version": "1.0.0",
+      "category": "camera-providers",
+      "path": "skills/camera-providers/tapo",
+      "tags": [
+        "tapo",
+        "tplink",
+        "camera",
+        "rtsp",
+        "onvif"
+      ],
+      "platforms": [
+        "linux-x64",
+        "linux-arm64",
+        "darwin-arm64",
+        "darwin-x64",
+        "win-x64"
+      ],
+      "requirements": {
+        "python": ">=3.9",
+        "ram_gb": 1
+      },
+      "capabilities": [
+        "clip_feed",
+        "discover_cameras",
+        "live_stream"
+      ],
+      "ui_unlocks": [
+        "camera_timeline",
+        "clip_feed",
+        "live_view"
+      ]
+    },
+    {
+      "id": "go2rtc-cameras",
+      "name": "go2rtc Multi-Camera Streaming",
+      "description": "Register RTSP cameras for low-latency WebRTC live view via go2rtc.",
+      "version": "1.0.0",
+      "category": "streaming",
+      "path": "skills/streaming/go2rtc-cameras",
+      "tags": [
+        "go2rtc",
+        "rtsp",
+        "webrtc",
+        "streaming",
+        "live"
+      ],
+      "platforms": [
+        "linux-x64",
+        "linux-arm64",
+        "darwin-arm64",
+        "darwin-x64",
+        "win-x64"
+      ],
+      "requirements": {
+        "python": ">=3.9",
+        "ram_gb": 1
+      },
+      "capabilities": [
+        "live_stream"
+      ],
+      "ui_unlocks": [
+        "live_grid_view",
+        "webrtc_player"
+      ]
+    },
+    {
+      "id": "channel-matrix",
+      "name": "Matrix Channel",
+      "description": "Matrix/Element messaging channel for Clawdbot agent.",
+      "version": "1.0.0",
+      "category": "channels",
+      "path": "skills/channels/matrix",
+      "tags": [
+        "matrix",
+        "element",
+        "messaging",
+        "chat"
+      ],
+      "platforms": [
+        "linux-x64",
+        "linux-arm64",
+        "darwin-arm64",
+        "darwin-x64",
+        "win-x64"
+      ],
+      "requirements": {
+        "python": ">=3.9",
+        "ram_gb": 1
+      },
+      "capabilities": [
+        "messaging_channel"
+      ],
+      "ui_unlocks": [
+        "channel_config"
+      ]
+    },
+    {
+      "id": "channel-line",
+      "name": "LINE Channel",
+      "description": "LINE messaging channel for Clawdbot agent.",
+      "version": "1.0.0",
+      "category": "channels",
+      "path": "skills/channels/line",
+      "tags": [
+        "line",
+        "messaging",
+        "chat",
+        "asia"
+      ],
+      "platforms": [
+        "linux-x64",
+        "linux-arm64",
+        "darwin-arm64",
+        "darwin-x64",
+        "win-x64"
+      ],
+      "requirements": {
+        "python": ">=3.9",
+        "ram_gb": 1
+      },
+      "capabilities": [
+        "messaging_channel"
+      ],
+      "ui_unlocks": [
+        "channel_config"
+      ]
+    },
+    {
+      "id": "channel-signal",
+      "name": "Signal Channel",
+      "description": "Signal messaging channel for Clawdbot agent — most private option.",
+      "version": "1.0.0",
+      "category": "channels",
+      "path": "skills/channels/signal",
+      "tags": [
+        "signal",
+        "messaging",
+        "chat",
+        "privacy"
+      ],
+      "platforms": [
+        "linux-x64",
+        "linux-arm64",
+        "darwin-arm64",
+        "darwin-x64"
+      ],
+      "requirements": {
+        "python": ">=3.9",
+        "ram_gb": 1
+      },
+      "capabilities": [
+        "messaging_channel"
+      ],
+      "ui_unlocks": [
+        "channel_config"
+      ]
+    },
+    {
+      "id": "mqtt-automation",
+      "name": "MQTT Automation",
+      "description": "Publish Aegis events to MQTT broker for Home Assistant, Node-RED, etc.",
+      "version": "1.0.0",
+      "category": "automation",
+      "path": "skills/automation/mqtt",
+      "tags": [
+        "mqtt",
+        "automation",
+        "homeassistant",
+        "nodered"
+      ],
+      "platforms": [
+        "linux-x64",
+        "linux-arm64",
+        "darwin-arm64",
+        "darwin-x64",
+        "win-x64"
+      ],
+      "requirements": {
+        "python": ">=3.9",
+        "ram_gb": 1
+      },
+      "capabilities": [
+        "automation"
+      ],
+      "ui_unlocks": [
+        "automation_rules"
+      ]
+    },
+    {
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "description": "POST Aegis events to webhook URLs — Zapier, IFTTT, Make, n8n.",
+      "version": "1.0.0",
+      "category": "automation",
+      "path": "skills/automation/webhook",
+      "tags": [
+        "webhook",
+        "automation",
+        "zapier",
+        "ifttt"
+      ],
+      "platforms": [
+        "linux-x64",
+        "linux-arm64",
+        "darwin-arm64",
+        "darwin-x64",
+        "win-x64"
+      ],
+      "requirements": {
+        "python": ">=3.9",
+        "ram_gb": 1
+      },
+      "capabilities": [
+        "automation"
+      ],
+      "ui_unlocks": [
+        "automation_rules"
+      ]
+    },
+    {
+      "id": "ha-automation-trigger",
+      "name": "HA Automation Trigger",
+      "description": "Fire Aegis detection events in Home Assistant for automations.",
+      "version": "1.0.0",
+      "category": "automation",
+      "path": "skills/automation/ha-trigger",
+      "tags": [
+        "homeassistant",
+        "automation",
+        "events"
+      ],
+      "platforms": [
+        "linux-x64",
+        "linux-arm64",
+        "darwin-arm64",
+        "darwin-x64",
+        "win-x64"
+      ],
+      "requirements": {
+        "python": ">=3.9",
+        "ram_gb": 1
+      },
+      "capabilities": [
+        "automation"
+      ],
+      "ui_unlocks": [
+        "automation_rules"
+      ]
+    },
+    {
+      "id": "homeassistant-bridge",
+      "name": "Home Assistant Bridge",
+      "description": "Bidirectional HA integration — HA cameras in, AI detection results out.",
+      "version": "1.0.0",
+      "category": "integrations",
+      "path": "skills/integrations/homeassistant-bridge",
+      "tags": [
+        "homeassistant",
+        "bridge",
+        "camera",
+        "detection"
+      ],
+      "platforms": [
+        "linux-x64",
+        "linux-arm64",
+        "darwin-arm64",
+        "darwin-x64",
+        "win-x64"
+      ],
+      "requirements": {
+        "python": ">=3.9",
+        "ram_gb": 1
+      },
+      "capabilities": [
+        "ha_bridge"
+      ],
+      "ui_unlocks": [
+        "ha_entity_browser",
+        "ha_status_panel"
+      ]
+    },
+    {
       "id": "home-security-benchmark",
       "name": "Home Security AI Benchmark",
       "description": "LLM & VLM evaluation suite for home security AI — tests dedup, classification, tool use, and scene analysis.",
@@ -47,43 +632,6 @@
       ],
       "ui_unlocks": [
         "benchmark_report"
-      ]
-    },
-    {
-      "id": "yolo-detection-2026",
-      "name": "YOLO Object Detection (2026)",
-      "description": "State-of-the-art real-time object detection using YOLOv11/YOLOv10. Person, vehicle, animal, and 80+ COCO class detection with configurable confidence thresholds.",
-      "version": "1.0.0",
-      "category": "detection",
-      "path": "skills/detection/yolo-detection-2026",
-      "icon": "skills/detection/yolo-detection-2026/assets/icon.png",
-      "tags": [
-        "yolo",
-        "detection",
-        "person",
-        "vehicle",
-        "real-time",
-        "coco"
-      ],
-      "platforms": [
-        "linux-x64",
-        "linux-arm64",
-        "darwin-arm64",
-        "darwin-x64",
-        "win-x64"
-      ],
-      "requirements": {
-        "python": ">=3.9",
-        "gpu": "optional",
-        "ram_gb": 2,
-        "disk_gb": 1
-      },
-      "capabilities": [
-        "live_detection"
-      ],
-      "ui_unlocks": [
-        "detection_overlay",
-        "alert_config"
       ]
     }
   ]
