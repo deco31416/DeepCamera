@@ -115,16 +115,23 @@ function buildHTML(latest, allResults) {
 
     // Build historical comparison table
     const historyRows = allResults.slice().reverse().map(r => {
-        const pct = r.total > 0 ? ((r.passed / r.total) * 100).toFixed(0) : 0;
         const ts = new Date(r.timestamp).toLocaleDateString() + ' ' + new Date(r.timestamp).toLocaleTimeString();
         const isCurrent = r.file === (allResults[allResults.length - 1]?.file);
         const vlmModel = r.vlm || (r.data?.model?.vlm) || '';
         const modelLabel = (r.model || '?') + (vlmModel ? `<br><span style="color:var(--muted);font-size:0.8em">VLM: ${vlmModel}</span>` : '');
+        // LLM/VLM split (fallback for older runs without split data)
+        const hasLlmVlm = r.llmTotal !== undefined;
+        const llmLabel = hasLlmVlm ? `${r.llmPassed}/${r.llmTotal}` : `${r.passed}/${r.total}`;
+        const llmPct = hasLlmVlm && r.llmTotal > 0 ? ((r.llmPassed / r.llmTotal) * 100).toFixed(0) + '%' : (r.total > 0 ? ((r.passed / r.total) * 100).toFixed(0) + '%' : '—');
+        const vlmLabel = hasLlmVlm && r.vlmTotal > 0 ? `${r.vlmPassed}/${r.vlmTotal}` : '—';
+        const vlmPct = hasLlmVlm && r.vlmTotal > 0 ? ((r.vlmPassed / r.vlmTotal) * 100).toFixed(0) + '%' : '—';
         return `<tr${isCurrent ? ' class="current-run"' : ''}>
             <td>${ts}${isCurrent ? ' ⬅️' : ''}</td>
             <td>${modelLabel}</td>
-            <td>${r.passed}/${r.total}</td>
-            <td>${pct}%</td>
+            <td>${llmLabel}</td>
+            <td>${llmPct}</td>
+            <td>${vlmLabel}</td>
+            <td>${vlmPct}</td>
             <td>${(r.timeMs / 1000).toFixed(1)}s</td>
             <td>${r.tokens || '?'}</td>
         </tr>`;
@@ -247,7 +254,7 @@ footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--border
 
 ${allResults.length > 1 ? `<h2>Historical Comparison</h2>
 <table>
-    <thead><tr><th>Date</th><th>Model</th><th>Passed</th><th>Rate</th><th>Time</th><th>Tokens</th></tr></thead>
+    <thead><tr><th>Date</th><th>Model</th><th>LLM</th><th>LLM %</th><th>VLM</th><th>VLM %</th><th>Time</th><th>Tokens</th></tr></thead>
     <tbody>${historyRows}</tbody>
 </table>` : ''}
 

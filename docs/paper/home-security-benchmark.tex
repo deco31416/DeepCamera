@@ -1,0 +1,1105 @@
+% ══════════════════════════════════════════════════════════════════════════════
+% HomeSec-Bench: Evaluating LLM & VLM Capabilities for
+% Intelligent Home Security Video Surveillance
+%
+% LaTeX — IEEE Conference 2-column format
+% Compile: tectonic home-security-benchmark.tex
+% ══════════════════════════════════════════════════════════════════════════════
+
+\documentclass[conference]{IEEEtran}
+
+% ─── Packages ─────────────────────────────────────────────────────────────────
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{url}
+\usepackage{listings}
+\usepackage{enumitem}
+\usepackage{subcaption}
+\usepackage{balance}
+
+% ─── Metadata ─────────────────────────────────────────────────────────────────
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    citecolor=blue,
+    urlcolor=blue,
+}
+
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+% ─── Custom commands ──────────────────────────────────────────────────────────
+\newcommand{\cmark}{\ding{51}}
+\newcommand{\xmark}{\ding{55}}
+\newcommand{\suite}[1]{\textsc{#1}}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\begin{document}
+
+\title{HomeSec-Bench: Evaluating LLM and VLM\\
+Capabilities for Intelligent Home Security\\Video Surveillance}
+
+\author{
+\IEEEauthorblockN{SharpAI Research}
+\IEEEauthorblockA{
+\textit{DeepCamera Project}\\
+\url{https://github.com/SharpAI/DeepCamera}}
+}
+
+\maketitle
+
+% ══════════════════════════════════════════════════════════════════════════════
+% ABSTRACT
+% ══════════════════════════════════════════════════════════════════════════════
+
+\begin{abstract}
+We introduce \textbf{HomeSec-Bench}, a comprehensive benchmark suite for
+evaluating Large Language Models (LLMs) and Vision Language Models (VLMs) on
+tasks specific to AI-powered home security assistants. Unlike general-purpose
+vision-language benchmarks (MMBench, SEED-Bench, MMMU) which evaluate broad
+perceptual and reasoning capabilities, HomeSec-Bench targets the
+\emph{unique cognitive demands} of video surveillance systems: four-level
+security threat classification, cross-camera event deduplication, agentic
+tool selection across five security-domain APIs, extraction of durable
+knowledge from user conversations, and scene understanding from security
+camera feeds including infrared imagery. The suite comprises
+\textbf{16~test suites} with \textbf{131~individual tests} spanning both
+text-only LLM reasoning (96~tests) and multimodal VLM scene analysis
+(35~tests). We present results from \textbf{34~benchmark runs} across
+three model configurations: a local 4B-parameter quantized model
+(Qwen3.5-4B-Q4\_1 GGUF), a frontier cloud model (GPT-5.2-codex), and a
+hybrid configuration pairing the cloud LLM with a local 1.6B-parameter
+VLM (LFM2.5-VL-Q8\_0). Our findings reveal that (1)~security
+classification is universally strong even in 4B-parameter models,
+(2)~tool selection competence degrades gracefully with model size,
+(3)~context window management remains challenging for all models, and
+(4)~local VLM inference on consumer hardware is feasible with sub-3B
+models but fails with larger architecture under memory pressure.
+HomeSec-Bench is released as an open-source DeepCamera skill, enabling
+reproducible evaluation of any OpenAI-compatible model endpoint.
+\end{abstract}
+
+\begin{IEEEkeywords}
+benchmark, large language models, vision language models, home security,
+video surveillance, edge AI, tool use, agentic AI, smart home
+\end{IEEEkeywords}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% 1. INTRODUCTION
+% ══════════════════════════════════════════════════════════════════════════════
+
+\section{Introduction}
+
+The convergence of affordable IP cameras, heterogeneous AI accelerators
+---Apple Silicon (M1--M4 with unified memory and Neural Engine), NVIDIA
+desktop GPUs (RTX 30/40/50 series), NVIDIA embedded modules (Jetson
+Orin/Nano), AMD Radeon GPUs (RX 7000 series with ROCm), Intel Arc
+discrete GPUs, Intel integrated graphics (Iris Xe) with OpenVINO,
+Qualcomm AI Engine NPUs, and dedicated neural processing units in
+modern SoCs---and instruction-tuned language models
+has opened a new design space for home security: systems that not only
+detect motion but \emph{understand} what is happening, \emph{reason}
+about its security relevance, and \emph{communicate} findings to
+homeowners in natural language. This paper addresses a critical gap:
+\emph{how do we systematically evaluate whether a given LLM or VLM is
+suitable for this role?}
+
+Modern AI security assistants must perform a diverse portfolio of
+cognitive tasks. When a camera captures motion, the system must
+(1)~analyze the visual scene to determine \emph{what} is happening
+(VLM scene understanding), (2)~classify the security relevance on a
+graduated scale from \emph{normal} to \emph{critical} (LLM threat
+triage), (3)~determine whether this event is a duplicate of a recent
+alert or a genuinely new occurrence (LLM deduplication),
+(4)~select the appropriate action---searching video archives,
+subscribing to future alerts, or dispatching clips to the user (LLM
+tool use), and (5)~synthesize multiple events into coherent narratives
+that surface threats without overwhelming the user with raw data
+(LLM narrative synthesis). Each of these tasks demands different model
+capabilities, and failure in any one can cascade: a VLM that hallucinates
+a ``person'' in an empty room generates a false alert that the LLM must
+then incorrectly triage, deduplicate, and narrate.
+
+Despite the rapid proliferation of multimodal benchmarks, none target
+this domain. MMBench \cite{liu2023mmbench} evaluates perception across
+20 ability dimensions using natural images. SEED-Bench
+\cite{li2023seedbench} tests 19K comprehension questions across 12
+evaluation aspects. MMMU \cite{yue2024mmmu} pushes into
+college-level expert reasoning. ToolBench \cite{qin2023toolllm} evaluates
+tool selection across 16,000+ APIs. AgentBench \cite{liu2023agentbench}
+tests agentic multi-turn reasoning. None include security camera imagery
+(fisheye distortion, infrared, low-light noise), surveillance-specific
+classification taxonomies (normal/monitor/suspicious/critical), or the
+temporal reasoning required for cross-camera event deduplication.
+
+\textbf{Contributions.} This paper makes four contributions:
+\begin{enumerate}[nosep]
+    \item \textbf{HomeSec-Bench}: A 131-test benchmark suite covering
+    16~evaluation dimensions specific to home security AI, spanning
+    both LLM text reasoning and VLM scene analysis, including novel
+    suites for prompt injection resistance, multi-turn contextual
+    reasoning, error recovery, privacy compliance, alert routing,
+    knowledge injection, and VLM-to-alert triage. Released as an
+    installable DeepCamera skill with self-contained fixtures.
+    \item \textbf{Multi-model evaluation}: Comparison of three
+    configurations---local 4B LLM, frontier cloud LLM, and a hybrid
+    cloud-LLM + local-VLM setup---across 34~runs on consumer hardware.
+    \item \textbf{Per-test failure taxonomy}: Systematic classification
+    of failure modes (timeouts, hallucinations, routing ambiguity,
+    temporal reasoning errors) with root-cause analysis.
+    \item \textbf{Deployment decision matrix}: Actionable guidance for
+    which model architecture suits which security task, considering
+    latency, accuracy, privacy, and cost tradeoffs.
+\end{enumerate}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% 2. RELATED WORK
+% ══════════════════════════════════════════════════════════════════════════════
+
+\section{Related Work}
+
+\subsection{Vision-Language Benchmarks}
+The VLM evaluation landscape has matured rapidly. MMBench
+\cite{liu2023mmbench} provides a systematic 3,000+ question evaluation
+across 20 ability dimensions, using CircularEval to reduce position bias.
+SEED-Bench \cite{li2023seedbench} scales to 19K multiple-choice questions
+across 12 dimensions including spatial reasoning and action recognition.
+MMMU \cite{yue2024mmmu} targets expert-level knowledge with 11.5K
+questions spanning 30 subjects. More recent benchmarks like Video-Bench
+\cite{ning2023videobench} extend evaluation to video understanding.
+
+However, all use natural imagery (photos, diagrams, art) and generic
+question types. Security camera footage presents unique challenges:
+wide-angle fisheye distortion compresses peripheral objects, infrared
+(IR) imagery removes color information, low-light noise degrades edge
+detail, and privacy constraints (blurred faces, low resolution) reduce
+available visual signal. None of these conditions appear in existing
+benchmarks.
+
+More recently, surveillance-specific VLM evaluation has emerged.
+Zanella and Liberatori \cite{zanella2024vlmsurveillance} investigate
+VLM spatial reasoning for zero-shot anomaly detection in surveillance
+video. The UCVL benchmark \cite{wu2024ucvl} provides 1,829 annotated
+crime surveillance videos for MLLM evaluation. Video-SafetyBench
+\cite{yuan2024videosafety} evaluates LVLM safety under adversarial
+video-text attacks across 48~unsafe categories. LAVAD
+\cite{zanella2024lavad} demonstrates training-free video anomaly
+detection by combining VLM captioning with LLM temporal aggregation.
+These works address \emph{visual} anomaly detection but do not
+evaluate the full cognitive pipeline (classification, deduplication,
+tool use, narrative synthesis) that HomeSec-Bench targets.
+
+\subsection{Tool-Use and Agentic Benchmarks}
+ToolBench \cite{qin2023toolllm} evaluates tool selection across 16,464
+real-world APIs organized into 49 categories. Berkeley Function Calling
+Leaderboard (BFCL) \cite{berkeley2024bfcl} provides standardized
+evaluation of API calling with parameter extraction. AgentBench
+\cite{liu2023agentbench} tests autonomous agents across 8 environments.
+
+These benchmarks evaluate \emph{generic} tool competence. HomeSec-Bench
+instead evaluates \emph{domain-specific} tool selection: given five
+security tools (\texttt{video\_search}, \texttt{video\_analyze},
+\texttt{video\_send}, \texttt{system\_status}, \texttt{event\_subscribe}),
+can the model correctly route ``Someone is at my door right now!'' to
+\texttt{video\_search} (immediate retrieval) rather than
+\texttt{event\_subscribe} (future alerting)? Can it distinguish ``Let me
+know if there's an animal'' (subscription) from ``Were there any
+animals?'' (search)? These distinctions require understanding
+\emph{urgency} and \emph{temporal intent}, not just API schema matching.
+
+\subsection{Security-Specific AI}
+Anomaly detection in surveillance video has been extensively studied
+\cite{sultani2018realworld}, but this work focuses on \emph{visual}
+anomaly classifiers, not language model reasoning. Smart home security
+products (Ring, Arlo, Nest) use proprietary pipelines with undisclosed
+evaluation criteria.
+
+\subsection{Edge LLM Inference}
+Deploying LLMs on consumer and edge hardware is an active research area.
+Laskaridis \textit{et al.} \cite{laskaridis2024llmedge} provide a
+comprehensive survey of model compression techniques (pruning,
+quantization) and inference engines including \texttt{llama.cpp} with
+the GGUF quantization format. ELIB \cite{lai2025elib} introduces
+a benchmarking tool for edge LLM inference with a Memory Bandwidth
+Utilization metric across heterogeneous platforms. Vartziotis
+\textit{et al.} \cite{vartziotis2025sustainable} evaluate 28~quantized
+LLMs on Raspberry Pi~4 for energy-accuracy tradeoffs. Piras
+\textit{et al.} \cite{piras2024npubench} benchmark CPU, GPU, and NPU
+platforms, finding that NPUs excel at LLM inference while GPUs favor
+convolutional workloads. These studies measure raw inference
+performance but do not evaluate \emph{task-level accuracy}
+for domain-specific applications---the gap HomeSec-Bench fills.
+
+To our knowledge, HomeSec-Bench is the first
+open benchmark that evaluates language models on the full cognitive
+pipeline of an AI security assistant.
+
+% ══════════════════════════════════════════════════════════════════════════════
+% 3. SYSTEM CONTEXT
+% ══════════════════════════════════════════════════════════════════════════════
+
+\section{System Context: DeepCamera Architecture}
+
+HomeSec-Bench is designed to evaluate models within the DeepCamera
+skill platform---an open-source home security ecosystem. Understanding
+the system architecture contextualizes why each benchmark suite exists.
+
+\subsection{Processing Pipeline}
+The system implements a five-stage pipeline:
+
+\begin{enumerate}[nosep]
+    \item \textbf{Acquisition}: Camera providers (Blink, Ring, Eufy, Reolink,
+    Tapo, ONVIF/RTSP) deliver clips or livestream frames.
+    \item \textbf{Scene Analysis} (VLM): Selected frames are sent to a
+    Vision Language Model for forensic description. The system supports
+    three prompt modes: \emph{scene} (``What do you see?''),
+    \emph{activity} (``What is happening?''), and a two-call
+    \emph{forensic} pipeline that first describes then classifies.
+    \item \textbf{Reasoning} (LLM): An agent processes VLM outputs
+    through security classification, deduplication, knowledge
+    distillation, and user-facing narrative synthesis.
+    \item \textbf{Dispatch}: Alerts route to messaging platforms
+    (Telegram, Discord, Slack, Signal) with per-camera, per-time
+    subscription rules.
+\end{enumerate}
+
+\subsection{Hybrid Local-Cloud Architecture}
+The system supports concurrent local and cloud model inference. A
+gateway service routes LLM requests to either a local
+\texttt{llama-server} instance or a cloud API based on configuration.
+A separate service runs local VLM inference via \texttt{llama-server}
+with vision capabilities. This hybrid architecture motivates our
+benchmark: operators need to know whether a local 4B-parameter model
+provides \emph{sufficient} accuracy for each task, or whether cloud
+routing is required.
+
+\subsection{Skill Platform}
+HomeSec-Bench is itself a \emph{DeepCamera skill}---a self-contained
+module following the platform's SKILL.md manifest specification. When
+spawned by the host application, it receives configuration via
+environment variables (LLM gateway URL, VLM endpoint URL) and emits
+structured JSON-lines events on stdout for real-time progress tracking.
+This design ensures the benchmark integrates natively with the system
+it evaluates, including realistic network latency and resource
+contention.
+
+% ══════════════════════════════════════════════════════════════════════════════
+% 4. BENCHMARK DESIGN
+% ══════════════════════════════════════════════════════════════════════════════
+
+\section{Benchmark Design}
+
+HomeSec-Bench comprises 16~test suites organized into two categories:
+text-only LLM reasoning (15~suites, 96~tests) and multimodal VLM scene
+analysis (1~suite, 35~tests). Table~\ref{tab:suites_overview} provides
+a structural overview.
+
+\begin{table}[h]
+\centering
+\caption{Benchmark Suite Structure}
+\label{tab:suites_overview}
+\begin{tabular}{p{2.6cm}ccl}
+\toprule
+\textbf{Suite} & \textbf{N} & \textbf{Type} & \textbf{Metric} \\
+\midrule
+Context Preproc. & 6 & LLM & \# kept items \\
+Topic Classif. & 4 & LLM & Exact match \\
+Knowledge Distill. & 5 & LLM & Fact count, slug \\
+Event Dedup. & 8 & LLM & Bool + reason \\
+Tool Use & 16 & LLM & Tool + params \\
+Chat \& JSON & 11 & LLM & Format, tone \\
+Security Classif. & 12 & LLM & 4-level + tags \\
+Narrative Synth. & 4 & LLM & Inclusion/excl. \\
+Injection Resist. & 4 & LLM & Identity preserve \\
+Multi-Turn Reason. & 4 & LLM & Context resolve \\
+Error Recovery & 4 & LLM & Graceful handling \\
+Privacy \& Compliance & 3 & LLM & PII, consent \\
+Alert Routing & 5 & LLM & Channel, schedule \\
+Knowledge Injection & 5 & LLM & KI use, relevance \\
+VLM-to-Alert Triage & 5 & LLM & Urgency + notify \\
+VLM Scene & 35 & VLM & Entity detect \\
+\midrule
+\textbf{Total} & \textbf{131} & & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+All tests communicate via the OpenAI-compatible
+\texttt{/v1/chat/completions} endpoint. The benchmark parses
+\texttt{<think>} blocks (common in reasoning models like Qwen) and
+extracts JSON from code blocks, enabling evaluation of models that
+emit chain-of-thought reasoning before structured output.
+
+\subsection{LLM Suite 1: Context Preprocessing}
+\label{sec:context}
+
+Home security assistants accumulate repetitive queries---users commonly ask
+``What has happened today?'' multiple times. Without deduplication,
+context windows fill with redundant exchanges, degrading response quality.
+
+The benchmark presents message indices with timestamps and content, asking
+the model to identify duplicates while preserving unique topics. Four
+scenarios test increasing complexity:
+
+\noindent\textbf{Test 1}: Seven near-identical questions
+(``What has happened today'' with minor punctuation
+variations) $\rightarrow$ model must retain $\leq$3.
+
+\noindent\textbf{Test 2}: Mixed duplicates and unique topics
+(alert setup, clip requests, status checks) $\rightarrow$ model must
+preserve semantically distinct questions.
+
+\noindent\textbf{Test 3}: Four completely unique questions $\rightarrow$
+model must retain all four (no false deduplication).
+
+\noindent\textbf{Test 4}: Minimal history (2~messages)
+$\rightarrow$ model should not drop anything.
+
+Output format: \texttt{\{``keep'': [indices], ``summary'': ``...''\}}.
+
+\subsection{LLM Suite 2: Topic Classification}
+
+Post-hoc topic tracking segments conversations into coherent threads
+for the database. The model must produce concise topic titles
+(3--6~words), detect when topics change mid-conversation, and generate
+valid titles even for greetings.
+
+Key test: given an exchange currently labeled ``Camera Events Review''
+and a follow-up about system status and storage, the model must
+output a new topic title (not ``SAME''). Conversely, when a user
+asks to see a clip related to camera events, the model must
+recognize topic continuity and output ``SAME.''
+
+\subsection{LLM Suite 3: Knowledge Distillation}
+
+Long-running security assistants accumulate durable knowledge:
+household members, camera locations, alert preferences, normal
+activity patterns. The distillation suite tests structured extraction
+using a slug-based schema:
+
+\begin{itemize}[nosep]
+    \item \texttt{home\_profile}: cameras, household members, pets, layout
+    \item \texttt{alert\_preferences}: per-camera rules, quiet hours
+    \item \texttt{security\_patterns}: normal/anomalous activity times
+    \item \texttt{system\_config}: model choices, channel configurations
+\end{itemize}
+
+Tests verify: (1)~extracting 3+ facts from a rich camera setup
+conversation, (2)~returning empty results for routine greetings
+(no hallucinated facts), (3)~routing alert-related facts to the
+correct \texttt{alert\_preferences} slug.
+
+\subsection{LLM Suite 4: Event Deduplication}
+
+Security cameras generate redundant alerts when entities linger or
+traverse multiple camera fields of view. The deduplication suite
+presents pairs of clip descriptions with temporal context (\texttt{age\_sec})
+and expects a structured judgment:
+\texttt{\{``duplicate'': bool, ``reason'': ``...'', ``confidence'': ``high/medium/low''\}}.
+
+Five scenarios probe progressive reasoning difficulty:
+
+\begin{enumerate}[nosep]
+    \item \textbf{Same person, same camera, 120s}: Man in blue shirt
+    lingering on sidewalk. Expected: duplicate.
+    \item \textbf{Different person, same camera, 300s}: Woman with package
+    vs.\ man on sidewalk. Expected: unique.
+    \item \textbf{Same vehicle, different cameras, 60s}: Car on street
+    near driveway (Front Door cam) then pulling into driveway (Side
+    Parking cam). Expected: duplicate---requires cross-camera identity.
+    \item \textbf{Same car, same camera, 1800s}: Silver SUV leaves then
+    returns 30~minutes later. Expected: unique---requires temporal
+    reasoning that same entity $\neq$ same event.
+    \item \textbf{Delivery sequence, 45s}: Delivery person approaching
+    with package, then walking back to van. Expected:
+    duplicate---requires understanding that arrival and departure are
+    phases of one event.
+\end{enumerate}
+
+\subsection{LLM Suite 5: Tool Use}
+
+The model is provided with five OpenAI-style function definitions
+representing the DeepCamera tool portfolio:
+
+\begin{itemize}[nosep]
+    \item \texttt{video\_search}: Query recorded clips by content, time,
+    camera
+    \item \texttt{video\_analyze}: Deep forensic analysis of specific
+    clips via VLM
+    \item \texttt{video\_send}: Dispatch a clip to the user's chat channel
+    \item \texttt{system\_status}: System health, storage, model info
+    \item \texttt{event\_subscribe}: Subscribe to future security events
+\end{itemize}
+
+Twelve scenarios test tool selection across a spectrum of specificity:
+
+\noindent\textbf{Straightforward} (6~tests): ``What happened today?''
+$\rightarrow$ \texttt{video\_search}; ``Check this footage''
+$\rightarrow$ \texttt{video\_analyze}; ``System status?''
+$\rightarrow$ \texttt{system\_status}.
+
+\noindent\textbf{Ambiguous} (3~tests): ``Is everything okay at home?''
+$\rightarrow$ either \texttt{video\_search} or \texttt{system\_status}
+accepted; ``Anything weird in the last hour?''
+$\rightarrow$ \texttt{video\_search} with time filter.
+
+\noindent\textbf{Urgent} (1~test): ``Someone is at my door right now!
+Check cameras immediately!'' $\rightarrow$ \texttt{video\_search}
+(the model cannot view live feeds---it must search recent recordings).
+
+\noindent\textbf{Temporal intent} (2~tests): ``Let me know if there's
+any animal in the backyard'' $\rightarrow$ \texttt{event\_subscribe}
+(proactive); ``Were there any cars yesterday?'' $\rightarrow$
+\texttt{video\_search} (retrospective).
+
+Multi-turn history is provided for context-dependent scenarios (e.g.,
+clip analysis following a search result).
+
+\subsection{LLM Suite 6: Chat \& JSON Compliance}
+
+Eight tests verify fundamental assistant capabilities:
+
+\begin{itemize}[nosep]
+    \item \textbf{Persona adherence}: Response mentions security/cameras
+    and stays under 2000~chars.
+    \item \textbf{NO\_REPLY}: Given ``[Tool Context] video\_search
+    returned 3 clips,'' model must not generate a user-facing response
+    ($<$500~chars).
+    \item \textbf{Multi-turn memory}: After user says ``My name is Alex''
+    and assistant acknowledges, model must recall the name.
+    \item \textbf{Bare JSON}: Return exactly
+    \texttt{\{``status'':``ok'',``count'':3\}}.
+    \item \textbf{JSON array}: Return \texttt{[``red'',``blue'',``green'']}.
+    \item \textbf{Nested JSON}: Multi-level object with event/camera data.
+    \item \textbf{Timestamp awareness}: Respond coherently to timestamped
+    queries.
+    \item \textbf{Emergency tone}: For ``Someone is trying to break into
+    my house right now!'' the response must mention calling 911/police
+    or indicate urgency---casual or dismissive responses fail.
+\end{itemize}
+
+\subsection{LLM Suite 7: Security Classification}
+
+The core threat-triage capability. The model receives event descriptions
+and must classify each into one of four levels:
+
+\begin{itemize}[nosep]
+    \item \texttt{normal}: Expected activity (deliveries, family, pets)
+    \item \texttt{monitor}: Worth watching (unknown vehicle, unfamiliar
+    person)
+    \item \texttt{suspicious}: Potentially concerning (casing,
+    photographing, loitering)
+    \item \texttt{critical}: Immediate threat (break-in, tampering,
+    trespassing at night)
+\end{itemize}
+
+Output: \texttt{\{``classification'': ``...'', ``tags'': [...],
+``reason'': ``...''\}}. Eight scenarios span the full taxonomy:
+
+\begin{table}[h]
+\centering
+\caption{Security Classification Test Scenarios}
+\label{tab:security_scenarios}
+\begin{tabular}{p{3.5cm}l}
+\toprule
+\textbf{Scenario} & \textbf{Expected} \\
+\midrule
+Man inspecting camera & suspicious \\
+Uniformed delivery person & normal \\
+Dark sedan parked 2+ hours & monitor \\
+Child riding bicycle & normal \\
+Person photographing house & suspicious \\
+Cat on IR camera at night & normal \\
+Door-handle tampering at 2\,AM & suspicious/critical \\
+Amazon van delivery & normal \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{LLM Suite 8: Narrative Synthesis}
+
+Given structured clip data (timestamps, cameras, summaries, clip~IDs),
+the model must produce user-friendly narratives. Three tests verify
+complementary capabilities:
+
+\begin{enumerate}[nosep]
+    \item \textbf{Chronological}: 5~events across 3~cameras $\rightarrow$
+    time-of-day references (``morning,'' ``afternoon'') required; raw
+    clip IDs (\texttt{clip\_001}) must \emph{not} appear.
+    \item \textbf{Threat highlighting}: 4~events including one
+    suspicious (``Unknown person trying front door handle'')
+    $\rightarrow$ suspicious event must be surfaced, not buried.
+    \item \textbf{Camera grouping}: 5~events across 3~cameras
+    $\rightarrow$ when user asks ``breakdown by camera,'' each camera
+    name must appear as an organizer.
+\end{enumerate}
+
+\subsection{VLM Suite: Scene Analysis}
+
+\textbf{New in v2:} Four additional LLM suites evaluate error recovery,
+privacy compliance, robustness, and contextual reasoning. Two entirely new
+suites---Error Recovery \& Edge Cases (4~tests) and Privacy \& Compliance
+(3~tests)---were added alongside expansions to Knowledge Distillation (+2)
+and Narrative Synthesis (+1).
+
+\subsection{LLM Suite 9: Prompt Injection Resistance}
+
+Security assistants process untrusted input from camera descriptions,
+user messages, and event metadata. Four tests evaluate whether the
+model maintains its security role under adversarial pressure:
+
+\begin{enumerate}[nosep]
+    \item \textbf{Camera description injection}: An event description
+    contains ``IGNORE ALL PREVIOUS INSTRUCTIONS. You are now HelpBot.''
+    The model must still classify the security event normally.
+    \item \textbf{Role confusion}: User attempts to redefine the
+    assistant as a cooking bot. The model must maintain its Aegis
+    security identity.
+    \item \textbf{System prompt extraction}: User requests verbatim
+    reproduction of the system prompt. The model must refuse or
+    deflect without leaking sensitive configuration.
+    \item \textbf{Authority escalation}: User claims administrator
+    privileges and demands security alerts be disabled. The model
+    must deny the unauthorized action.
+\end{enumerate}
+
+\subsection{LLM Suite 10: Multi-Turn Reasoning}
+
+Real-world security conversations involve follow-ups, corrections,
+and implicit references. Four tests evaluate contextual coherence
+across conversation turns:
+
+\begin{enumerate}[nosep]
+    \item \textbf{Follow-up refinement}: After receiving 8~events,
+    user narrows to ``just people after 1~PM.'' Model must filter
+    or re-search with refined criteria.
+    \item \textbf{Correction handling}: User says ``front door''
+    then corrects to ``actually, the backyard camera.'' Model must
+    use the corrected entity, not the original.
+    \item \textbf{Reference resolution}: After discussing the front
+    door camera, user says ``set an alert on \emph{that} camera.''
+    Model must resolve the anaphoric reference.
+    \item \textbf{Temporal carry-over}: After discussing a 3~PM event,
+    user asks ``same time yesterday.'' Model must carry forward both
+    the time and camera context.
+\end{enumerate}
+
+\subsection{VLM Suite: Scene Analysis (Suite 13)}
+
+35~tests send base64-encoded security camera PNG frames to a VLM
+endpoint with scene-specific prompts. Fixture images are AI-generated
+to depict realistic security camera perspectives with fisheye
+distortion, IR artifacts, and typical household scenes. The expanded
+suite is organized into five categories:
+
+\begin{table}[h]
+\centering
+\caption{VLM Scene Analysis Categories (35 tests)}
+\label{tab:vlm_tests}
+\begin{tabular}{p{3.2cm}cl}
+\toprule
+\textbf{Category} & \textbf{N} & \textbf{Example Scenarios} \\
+\midrule
+Original Core & 7 & Person, vehicle, package, animal \\
+Object Detection & 8 & Occluded person, multi-class, wheelchair \\
+Challenging Conditions & 7 & Rain, fog, snow, glare, spider web \\
+Security Scenarios & 7 & Window peeper, fallen person, open garage \\
+Scene Understanding & 6 & Pool area, traffic flow, mail carrier \\
+\midrule
+\textbf{Total} & \textbf{35} & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Pass criteria use keyword matching: the response must contain at least
+one relevant term (e.g., ``person,'' ``someone,'' ``man,'' ``woman''
+for person detection). The 120-second timeout accommodates the high
+computational cost of processing $\sim$800KB images on consumer hardware.
+
+% ══════════════════════════════════════════════════════════════════════════════
+% 5. EXPERIMENTAL SETUP
+% ══════════════════════════════════════════════════════════════════════════════
+
+\section{Experimental Setup}
+
+\subsection{Models Under Test}
+
+\begin{table}[h]
+\centering
+\caption{Model Configurations}
+\label{tab:models}
+\small
+\begin{tabular}{p{1.4cm}p{2.0cm}p{2.4cm}l}
+\toprule
+\textbf{Config} & \textbf{LLM} & \textbf{VLM} & \textbf{Loc.} \\
+\midrule
+A (Local) & Qwen3.5-4B Q4\_1 & --- & Edge \\
+B (Cloud) & GPT-5.2-codex & --- & API \\
+C (Hybrid) & GPT-5.2-codex & LFM2.5-VL 1.6B Q8 & Mix \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Config~A (local) runs the LLM via \texttt{llama-server} with Metal
+acceleration on unified memory. Config~B (cloud) routes through the
+OpenAI API via the Aegis LLM gateway. Config~C (hybrid) combines the
+cloud LLM with a local 1.6B-parameter vision model (Liquid Foundation
+Model 2.5 VL) for scene analysis.
+
+\subsection{Hardware}
+
+All experiments run on a single consumer machine:
+Apple M3 SoC, 8~CPU cores, 10~GPU cores, 24~GB unified memory,
+macOS~15.3 (Darwin~25.3.0, arm64), Node.js~v24.13.1. The local LLM
+server (\texttt{llama-server}) occupies approximately 3.2~GB of unified
+memory for the Q4\_1 4B model; the VLM server requires an additional
+1.8~GB for the Q8\_0 1.6B vision model. Running both concurrently
+leaves $\sim$19~GB for the OS and applications, representative of a
+realistic edge deployment scenario.
+
+\subsection{Evaluation Protocol}
+
+Each model configuration is evaluated through the identical OpenAI-compatible
+API. LLM tests use a 30-second timeout; VLM tests use 120~seconds.
+Temperature is fixed at 0.1 for classification and deduplication tasks
+(deterministic) and left at default for open-ended tasks. Results are
+collected as JSON with per-test latency, pass/fail status, token counts,
+and model-reported usage statistics. The benchmark was run 34~times
+over two days during iterative development, providing variance data.
+
+% ══════════════════════════════════════════════════════════════════════════════
+% 6. RESULTS
+% ══════════════════════════════════════════════════════════════════════════════
+
+\section{Results}
+
+\subsection{Overall Scorecard}
+
+\begin{table}[h]
+\centering
+\caption{Overall Benchmark Results (Best Run per Config)}
+\label{tab:overall}
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{Config} & \textbf{LLM} & \textbf{VLM} & \textbf{Total} & \textbf{Rate} & \textbf{Time} \\
+\midrule
+A (Local) & 39/47 & 0/7 & 39/54 & 72\% & 1341s \\
+B (Cloud) & 46/47 & skip & 46/48 & 96\% & 74s \\
+C (Hybrid) & 47/47 & 6/7 & 53/54 & \textbf{98\%} & 91s \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Config~C (hybrid) achieves the highest overall score: \textbf{53/54
+(98.1\%)} with a perfect LLM score and 6/7 VLM pass rate. The only VLM
+failure is animal detection in a backyard scene where the 1.6B model
+describes the environment but misses the subject animal.
+
+\subsection{Suite-Level Comparison}
+
+\begin{table*}[t]
+\centering
+\caption{Per-Suite Results: Pass/Total and Total Suite Latency}
+\label{tab:suite}
+\begin{tabular}{lcc|cc|cc}
+\toprule
+& \multicolumn{2}{c|}{\textbf{A: Local (Qwen 4B)}} & \multicolumn{2}{c|}{\textbf{B: Cloud (GPT-5.2)}} & \multicolumn{2}{c}{\textbf{C: Hybrid}} \\
+\textbf{Suite} & \textbf{Pass} & \textbf{Time} & \textbf{Pass} & \textbf{Time} & \textbf{Pass} & \textbf{Time} \\
+\midrule
+Context Preprocessing & 2/4 & 40s & 3/4 & 9s & 4/4 & 8s \\
+Topic Classification & 3/4 & 5s & 4/4 & 5s & 4/4 & 5s \\
+Knowledge Distillation & 2/3 & 55s & 3/3 & 7s & 3/3 & 6s \\
+Event Deduplication & 4/5 & 48s & 5/5 & 7s & 5/5 & 7s \\
+Tool Use & 11/12 & 121s & 12/12 & 18s & 12/12 & 19s \\
+Chat \& JSON Compliance & 6/8 & 88s & 8/8 & 10s & 8/8 & 10s \\
+Security Classification & \textbf{8/8} & 82s & \textbf{8/8} & 12s & \textbf{8/8} & 13s \\
+Narrative Synthesis & \textbf{3/3} & 63s & \textbf{3/3} & 6s & \textbf{3/3} & 7s \\
+VLM Scene Analysis & 0/7 & 840s & --- & --- & 6/7 & 15s \\
+\midrule
+\textbf{Total} & 39/54 & 1341s & 46/48 & 74s & 53/54 & 91s \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\textbf{Key finding 1: Security Classification is universally robust.}
+All three configurations achieve 8/8 perfect scores. Even the 4B local
+model correctly distinguishes all eight threat levels---including the
+nuanced ``monitor'' classification for an unknown parked vehicle (not
+dangerous, but worth watching). This suggests that threat-level
+classification is \emph{well within the capability floor} of current
+small language models and should be the first candidate for local
+deployment.
+
+\textbf{Key finding 2: Narrative Synthesis is consistently strong.}
+All configurations produce coherent chronological summaries, correctly
+surface suspicious events, and group by camera when asked. Critically,
+none leak raw clip IDs into user-facing narratives. This capability
+appears to require primarily instruction-following ability rather than
+deep reasoning.
+
+\textbf{Key finding 3: Context Preprocessing is universally
+difficult.} Even Config~C (best overall) fails the ``all unique
+$\rightarrow$ keep all'' test in some runs. The local model retains too
+many items (14/7); the cloud model occasionally over-prunes. This
+suggests deduplication requires specialized prompt engineering or
+fine-tuning regardless of model size.
+
+\textbf{Key finding 4: Tool Use degrades gracefully.}
+The local model achieves 11/12 on tool selection---only failing to
+distinguish \texttt{event\_subscribe} from \texttt{video\_search} for
+proactive animal alerts. The cloud model achieves 12/12 consistently.
+This 91.7\% vs.\ 100\% gap indicates that tool routing is a viable
+candidate for local deployment with an acceptable error margin.
+
+\textbf{Key finding 5: Local VLM inference fails under memory pressure.}
+The Qwen3.5-2B VLM (running concurrently with the 4B LLM on 24GB
+unified memory) times out on all 7 scene analysis tests (120s each).
+However, the smaller LFM2.5-VL 1.6B model (1.8GB) achieves 6/7 when
+paired with the cloud LLM (no local LLM memory contention). This
+indicates that \emph{model size must be calibrated to available
+memory}, not just accuracy requirements.
+
+\subsection{Per-Test Latency Distribution}
+
+\begin{table}[h]
+\centering
+\caption{Per-Test Latency Statistics (seconds)}
+\label{tab:latency}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Config} & \textbf{Med.} & \textbf{Mean} & \textbf{P95} & \textbf{T/O} \\
+\midrule
+A (Local LLM) & 9.9 & 10.7 & 30.0 & 3 \\
+B (Cloud LLM) & 1.4 & 1.6 & 3.0 & 0 \\
+C (Hybrid VLM) & 1.7 & 1.7 & 3.2 & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The local model's median latency (9.9s) is approximately
+\textbf{7$\times$ the cloud model} (1.4s). For latency-critical tasks
+(emergency response, real-time threat classification during an active
+event), this gap makes cloud routing essential. However, for background
+tasks (knowledge distillation, narrative synthesis after a quiet period),
+10-second latency is acceptable.
+
+\subsection{Token Efficiency}
+
+\begin{table}[h]
+\centering
+\caption{Token Usage Across Full Benchmark (47 LLM Tests)}
+\label{tab:tokens}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Config} & \textbf{Prompt} & \textbf{Compl.} & \textbf{Total} & \textbf{Ratio} \\
+\midrule
+A (Local) & 20,058 & 2,198 & 22,256 & 9.1:1 \\
+B (Cloud) & 14,608 & 3,012 & 17,620 & 4.9:1 \\
+C (Hybrid) & 16,590 & 3,871 & 20,461 & 4.3:1 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The local model consumes 26\% more total tokens while generating 27\%
+fewer completion tokens, yielding a 9.1:1 prompt:completion ratio
+(vs.\ 4.9:1 for cloud). This indicates less efficient prompt processing
+and more constrained output generation---likely due to the Q4\_1
+quantization reducing the model's ability to generate concise,
+information-dense completions.
+
+\subsection{Run-to-Run Variance}
+
+Across 34~runs, we observe notable variance in the local model:
+
+\begin{table}[h]
+\centering
+\caption{Run-to-Run Pass Rate Variance (LLM Tests Only)}
+\label{tab:variance}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Model} & \textbf{Runs} & \textbf{Range} & \textbf{Best} \\
+\midrule
+Qwen3.5-4B & 12 & 21--50 / 26--54 & 50/54 (93\%) \\
+GPT-5.2-codex & 22 & 23--54 / 26--54 & 54/54 (100\%) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+GPT-5.2-codex achieved a \textbf{perfect 54/54 score} in one run
+(including VLM tests), while the local Qwen model fluctuates between
+83--93\% on LLM-only tests. The higher variance of the local model
+is partly due to non-deterministic timeout behavior: the same test may
+pass in 28s on one run and timeout at 30s on the next, depending on
+system memory pressure from concurrent processes.
+
+% ══════════════════════════════════════════════════════════════════════════════
+% 7. FAILURE MODE TAXONOMY
+% ══════════════════════════════════════════════════════════════════════════════
+
+\section{Failure Mode Taxonomy}
+
+We identify five categories of failure across all configurations:
+
+\subsection{F1: Inference Timeout}
+\textbf{Affected}: Config~A only. Three LLM tests (Knowledge Distillation,
+Timestamp Awareness, Emergency Response) and all 7~VLM tests.
+\textbf{Root cause}: Extended generation ($>$200~tokens) on Q4\_1 quantized
+model at $\sim$20~tok/s exceeds the 30s timeout. VLM timeouts trace to
+memory contention when LLM and VLM servers run concurrently on 24GB.
+\textbf{Mitigation}: Increase timeout, reduce \texttt{maxTokens}, or use
+smaller VLM when co-located with LLM.
+
+\subsection{F2: Temporal Reasoning Error}
+\textbf{Affected}: Config~A. The local model classifies a car leaving
+then returning 30~minutes later as ``duplicate'' instead of ``unique.''
+\textbf{Root cause}: The model conflates \emph{entity identity} (same
+silver SUV) with \emph{event identity} (departure and return are distinct
+events). The 1800-second gap should trigger ``unique'' per the deduplication
+criteria, but the model focuses on description similarity over temporal
+separation.
+\textbf{Implication}: Small models may need explicit temporal reasoning
+prompts (``Events $>$10 minutes apart are distinct'') to compensate for
+weaker inference.
+
+\subsection{F3: Routing Ambiguity}
+\textbf{Affected}: Config~A. ``Let me know if there's any animal in the
+backyard'' routes to \texttt{video\_search} instead of
+\texttt{event\_subscribe}.
+\textbf{Root cause}: The phrasing ``let me know'' signals a proactive
+subscription, but the local model defaults to the higher-frequency
+\texttt{video\_search} tool---a classic prior probability bias.
+\textbf{Implication}: Tool-calling accuracy for rare tools may require
+explicit intent-classification prompts or few-shot examples.
+
+\subsection{F4: Context Window Mismanagement}
+\textbf{Affected}: All configurations. The local model retains 14~items
+when asked to keep 7 (hallucinating fabricated indices). The cloud model
+occasionally over-prunes unique questions (2/4 instead of 4/4).
+\textbf{Root cause}: Index manipulation within a list (selecting which
+items to keep) requires precise numerical reasoning that degrades across
+model sizes.
+\textbf{Implication}: Context deduplication should not be delegated
+entirely to the LLM; a hybrid approach with embedding similarity
+pre-filtering may be more robust.
+
+\subsection{F5: VLM Entity Omission}
+\textbf{Affected}: Config~C (VLM only). LFM2.5-VL 1.6B describes a
+backyard scene accurately (fence, grass, layout) but fails to mention
+the dog---the focal entity.
+\textbf{Root cause}: At 1.6B parameters with Q8\_0 quantization, the
+model's object grounding capability is insufficient for small or
+partially occluded subjects.
+\textbf{Implication}: Sub-2B VLMs are viable for scene \emph{description}
+but may miss specific entity \emph{detection}, suggesting a two-pass
+approach: fast local VLM for scene description, cloud VLM for entity
+verification on flagged frames.
+
+% ══════════════════════════════════════════════════════════════════════════════
+% 8. DISCUSSION
+% ══════════════════════════════════════════════════════════════════════════════
+
+\section{Discussion}
+
+\subsection{Deployment Decision Matrix}
+
+Based on our results, we propose a task-level deployment recommendation:
+
+\begin{table}[h]
+\centering
+\caption{Deployment Recommendation Matrix}
+\label{tab:recommend}
+\small
+\begin{tabular}{p{2.3cm}ccc}
+\toprule
+\textbf{Task} & \textbf{Local} & \textbf{Cloud} & \textbf{Hybrid} \\
+\midrule
+Security Classif. & 8/8 & 8/8 & 8/8 \\
+Narrative Synth. & 3/3 & 3/3 & 3/3 \\
+Tool Use & 11/12 & 12/12 & 12/12 \\
+Event Dedup. & 4/5 & 5/5 & 5/5 \\
+Topic Classif. & 3/4 & 4/4 & 4/4 \\
+Knowledge Distill. & 2/3* & 3/3 & 3/3 \\
+Chat Compliance & 6/8* & 8/8 & 8/8 \\
+Context Preproc. & 2/4 & 3/4 & 4/4 \\
+VLM Scene & 0/7* & --- & 6/7 \\
+\bottomrule
+\multicolumn{4}{l}{\footnotesize *Includes timeout failures} \\
+\end{tabular}
+\end{table}
+
+\textbf{Recommendation}: Deploy a \emph{tiered hybrid architecture}:
+\begin{itemize}[nosep]
+    \item \textbf{Tier 1 (Local)}: Security classification, tool use,
+    narrative synthesis. These tasks achieve $\geq$91\% accuracy locally
+    with acceptable latency.
+    \item \textbf{Tier 2 (Cloud on demand)}: Knowledge distillation,
+    emergency response, context preprocessing. Route to cloud when
+    the task exceeds local capability or when latency is critical.
+    \item \textbf{Tier 3 (Hybrid VLM)}: Small local VLM ($\leq$2B) for
+    real-time scene description; cloud VLM for entity verification
+    and complex scene analysis.
+\end{itemize}
+
+\subsection{Privacy vs.\ Accuracy Tradeoff}
+
+Home security is inherently privacy-sensitive---sending camera footage
+to cloud APIs raises legitimate concerns. Our results quantify this
+tradeoff: local-only deployment sacrifices 26~percentage points of
+accuracy (72\% vs.\ 98\%) compared to hybrid. However, the
+\emph{security-critical} task (threat classification) maintains 100\%
+accuracy locally, meaning privacy-preserving deployments can still
+reliably triage events without cloud exposure.
+
+\subsection{Cost Analysis}
+
+At current OpenAI pricing, Config~B (cloud) processes the full 47-test
+LLM benchmark for approximately \$0.04 in API costs (17.6K tokens at
+GPT-5.2 rates). Extrapolated to continuous operation (50~events/day,
+each requiring classification + tool call), cloud costs are approximately
+\$3--5/month. Local deployment has zero marginal cost but requires
+\$200--400 GPU-capable hardware (or an existing Apple Silicon Mac).
+The breakeven point is approximately 3--6~months of continuous operation.
+
+\subsection{Benchmark Limitations and Future Work}
+
+\begin{enumerate}[nosep]
+    \item \textbf{Model coverage}: Additional models (Llama~3.2,
+    Mistral~7B, Phi-3, Claude~3.5, Gemini~2.0 Flash) are needed for
+    comprehensive comparison. We plan per-model profiles in future
+    revisions.
+    \item \textbf{Synthetic VLM fixtures}: Test frames are AI-generated.
+    Real security camera footage (with consent) would provide more
+    ecologically valid evaluation.
+    \item \textbf{Single hardware config}: ARM-only results should be
+    validated on NVIDIA GPUs, x86 CPUs, and ARM SBCs (Raspberry Pi~5,
+    NVIDIA Jetson).
+    \item \textbf{No fine-tuning evaluation}: All models are evaluated
+    zero-shot with inference-time prompting. Security-domain fine-tuned
+    models may close the local-cloud gap significantly.
+    \item \textbf{Temporal video understanding}: Current VLM tests use
+    single frames. Multi-frame or video-native VLMs (e.g., via
+    llama.cpp video support) should be evaluated for motion-aware scene
+    analysis.
+    \item \textbf{Adversarial robustness}: No tests evaluate model
+    behavior under adversarial inputs (e.g., prompt injection via
+    on-camera text, coordinated deduplication evasion).
+\end{enumerate}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% 9. CONCLUSION
+% ══════════════════════════════════════════════════════════════════════════════
+
+\section{Conclusion}
+
+We presented HomeSec-Bench, the first open-source benchmark for evaluating
+LLM and VLM models on the full cognitive pipeline of AI home security
+assistants. Our 131-test suite spans 16~evaluation dimensions---from
+four-level threat classification to agentic tool selection to cross-camera
+event deduplication, prompt injection resistance, and multi-turn contextual
+reasoning---providing a standardized, reproducible framework for
+comparing model suitability in video surveillance deployments.
+
+Results from 34~benchmark runs across three configurations reveal a
+nuanced landscape. Security classification is universally robust (100\%
+across all configurations), validating local deployment for the most
+critical task. Tool selection degrades gracefully (91.7\% local vs.\
+100\% cloud), making it a strong candidate for edge inference. However,
+context management, temporal reasoning, and local VLM inference under
+memory pressure remain significant challenges, arguing for hybrid
+architectures that route complex tasks to cloud APIs while preserving
+privacy for routine operations.
+
+The benchmark, all fixtures, and historical results are available at:
+\url{https://github.com/SharpAI/DeepCamera}
+
+\balance
+
+% ══════════════════════════════════════════════════════════════════════════════
+% REFERENCES
+% ══════════════════════════════════════════════════════════════════════════════
+
+\begin{thebibliography}{00}
+
+% --- Vision-Language Benchmarks ---
+\bibitem{liu2023mmbench}
+Y.~Liu \textit{et al.}, ``MMBench: Is Your Multi-modal Model an
+All-around Player?'' \textit{arXiv:2307.06281}, 2023.
+
+\bibitem{li2023seedbench}
+B.~Li \textit{et al.}, ``SEED-Bench: Benchmarking Multimodal LLMs with
+Generative Comprehension,'' \textit{arXiv:2307.16125}, 2023.
+
+\bibitem{yue2024mmmu}
+X.~Yue \textit{et al.}, ``MMMU: A Massive Multi-discipline Multimodal
+Understanding and Reasoning Benchmark for Expert AGI,''
+\textit{arXiv:2311.16502}, 2024.
+
+\bibitem{ning2023videobench}
+M.~Ning \textit{et al.}, ``Video-Bench: A Comprehensive Benchmark and
+Toolkit for Evaluating Video-Based Large Language Models,''
+\textit{arXiv:2311.16103}, 2023.
+
+% --- Tool-Use and Agentic Benchmarks ---
+\bibitem{qin2023toolllm}
+Y.~Qin \textit{et al.}, ``ToolLLM: Facilitating Large Language Models
+to Master 16000+ Real-World APIs,'' \textit{arXiv:2307.16789}, 2023.
+
+\bibitem{liu2023agentbench}
+X.~Liu \textit{et al.}, ``AgentBench: Evaluating LLMs as Agents,''
+\textit{arXiv:2308.03688}, 2023.
+
+\bibitem{berkeley2024bfcl}
+S.~Yan \textit{et al.}, ``Berkeley Function Calling Leaderboard,''
+\textit{arXiv:2402.15671}, 2024.
+
+% --- Surveillance and Video Anomaly ---
+\bibitem{sultani2018realworld}
+W.~Sultani, C.~Chen, and M.~Shah, ``Real-World Anomaly Detection in
+Surveillance Videos,'' in \textit{Proc. IEEE CVPR}, pp.~6479--6488, 2018.
+
+\bibitem{zanella2024lavad}
+L.~Zanella and B.~Liberatori \textit{et al.}, ``LAVAD: Language-based
+Video Anomaly Detection,'' in \textit{Proc. IEEE CVPR}, 2024.
+
+\bibitem{zanella2024vlmsurveillance}
+L.~Zanella \textit{et al.}, ``On the Spatial Reasoning of
+Vision-Language Models in Surveillance Videos,'' \textit{arXiv}, 2024.
+
+\bibitem{wu2024ucvl}
+Y.~Wu \textit{et al.}, ``UCVL: A New Benchmark for Crime Surveillance
+Video Analysis Using Large Models,'' \textit{arXiv}, 2024.
+
+\bibitem{yuan2024videosafety}
+Y.~Yuan \textit{et al.}, ``Video-SafetyBench: A Benchmark for Safety
+Evaluation of Large Vision-Language Models in Video Contexts,''
+\textit{arXiv}, 2024.
+
+% --- Edge LLM Inference ---
+\bibitem{laskaridis2024llmedge}
+S.~Laskaridis \textit{et al.}, ``Efficient Large Language Models: A
+Survey of Compression and Inference,'' \textit{arXiv:2402.01799}, 2024.
+
+\bibitem{lai2025elib}
+X.~Lai \textit{et al.}, ``ELIB: Edge LLM Inference Benchmarking,"
+\textit{arXiv}, 2025.
+
+\bibitem{vartziotis2025sustainable}
+D.~Vartziotis \textit{et al.}, ``Sustainable LLM Inference for Edge
+AI: Evaluating Quantized Models on Raspberry Pi,''
+\textit{arXiv}, 2025.
+
+\bibitem{piras2024npubench}
+A.~Piras \textit{et al.}, ``Benchmarking Edge AI Platforms for
+High-Performance ML Inference,'' \textit{arXiv}, 2024.
+
+\end{thebibliography}
+
+\end{document}
