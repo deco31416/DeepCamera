@@ -104,7 +104,9 @@ async function llmCall(messages, opts = {}) {
     if (opts.temperature !== undefined) body.temperature = opts.temperature;
     if (opts.tools) body.tools = opts.tools;
 
-    const url = opts.vlm ? `${VLM_URL}/v1/chat/completions` : `${GATEWAY_URL}/v1/chat/completions`;
+    // Strip trailing /v1 from VLM_URL to avoid double-path (e.g. host:5405/v1/v1/...)
+    const vlmBase = VLM_URL ? VLM_URL.replace(/\/v1\/?$/, '') : '';
+    const url = opts.vlm ? `${vlmBase}/v1/chat/completions` : `${GATEWAY_URL}/v1/chat/completions`;
     const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
