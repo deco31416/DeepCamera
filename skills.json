@@ -48,6 +48,43 @@
       "ui_unlocks": [
         "benchmark_report"
       ]
+    },
+    {
+      "id": "yolo-detection-2026",
+      "name": "YOLO Object Detection (2026)",
+      "description": "State-of-the-art real-time object detection using YOLOv11/YOLOv10. Person, vehicle, animal, and 80+ COCO class detection with configurable confidence thresholds.",
+      "version": "1.0.0",
+      "category": "detection",
+      "path": "skills/detection/yolo-detection-2026",
+      "icon": "skills/detection/yolo-detection-2026/assets/icon.png",
+      "tags": [
+        "yolo",
+        "detection",
+        "person",
+        "vehicle",
+        "real-time",
+        "coco"
+      ],
+      "platforms": [
+        "linux-x64",
+        "linux-arm64",
+        "darwin-arm64",
+        "darwin-x64",
+        "win-x64"
+      ],
+      "requirements": {
+        "python": ">=3.9",
+        "gpu": "optional",
+        "ram_gb": 2,
+        "disk_gb": 1
+      },
+      "capabilities": [
+        "live_detection"
+      ],
+      "ui_unlocks": [
+        "detection_overlay",
+        "alert_config"
+      ]
     }
   ]
 }

@@ -54,6 +54,20 @@
 
 ---
 
+### 🗺️ DeepCamera Roadmap
+
+DeepCamera is evolving into a full AI skill platform. Planned features:
+
+- [ ] **Upgrade object detection** to 2026 state-of-the-art YOLO models
+- [ ] **VLM analysis backend** — offline scene understanding of recorded clips using vision language models
+- [ ] **AI Studios backend** — SAM2 interactive segmentation, DINOv3 grounding, depth estimation, feature extraction
+- [ ] **Direct camera provider plugins** — Blink, Ring, Eufy, Reolink, Tapo, RTSP/ONVIF (beyond Home Assistant)
+- [ ] **Messaging channel plugins** — Telegram, Discord, Slack, WhatsApp
+- [ ] **Automation triggers** — MQTT, webhooks, Home Assistant events
+- [ ] **go2rtc streaming** — RTSP to WebRTC live view
+- [x] **Skill architecture** — pluggable `SKILL.md` interface for all capabilities
+
+
 ---
 
 ## 🎯 Overview
