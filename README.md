@@ -103,7 +103,7 @@ Run it on your own hardware to know exactly where your setup stands.
 
 ### Results: Local vs. Cloud vs. Hybrid
 
-<img src="screenshots/homesec-bench-results.png" alt="HomeSec-Bench benchmark results — local Qwen 4B vs cloud GPT-5.2 vs hybrid" width="100%">
+<a href="docs/paper/home-security-benchmark.pdf"><img src="screenshots/homesec-bench-results.png" alt="HomeSec-Bench benchmark results — local Qwen 4B vs cloud GPT-5.2 vs hybrid" width="100%"></a>
 
 Running on a **Mac M1 Mini 8GB**: local Qwen3.5-4B scores **39/54** (72%), cloud GPT-5.2 scores **46/48** (96%), and the hybrid config reaches **53/54** (98%). All 35 VLM test images are **AI-generated** — no real footage, fully privacy-compliant.
 
