@@ -148,11 +148,14 @@ For the modern experience, use [SharpAI Aegis](https://www.sharpai.org).
 
 ---
 
-## 🏗️ Architecture
+<details>
+<summary><h2>🏗️ Architecture</h2></summary>
 
 ![architecture](screenshots/DeepCamera_infrastructure.png)
 
 [Complete Feature List →](docs/DeepCamera_Features.md)
+
+</details>
 
 ## 🤝 Support & Community
 
