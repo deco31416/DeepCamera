@@ -1775,7 +1775,7 @@ async function main() {
         const ping = await llmClient.chat.completions.create({
             ...(LLM_MODEL && { model: LLM_MODEL }),
             messages: [{ role: 'user', content: 'ping' }],
-            max_completion_tokens: 1,
+            max_completion_tokens: 5,
         });
         results.model.name = ping.model || 'unknown';
         log(`  Model:    ${results.model.name}`);
