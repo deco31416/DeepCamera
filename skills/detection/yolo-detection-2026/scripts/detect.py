@@ -6,8 +6,8 @@ Communicates via JSON lines over stdin/stdout:
   stdin:  {"event": "frame", "frame_id": N, "camera_id": "...", "frame_path": "...", ...}
   stdout: {"event": "detections", "frame_id": N, "camera_id": "...", "objects": [...]}
 
-On Apple Silicon (MPS), auto-converts to CoreML for ~2x faster inference via ANE.
-Emits periodic performance statistics via "perf_stats" events.
+Uses env_config.py for automatic hardware detection and model optimization
+(TensorRT, ONNX, CoreML, OpenVINO) with PyTorch fallback.
 
 Usage:
   python detect.py --config config.json
@@ -20,6 +20,10 @@ import argparse
 import signal
 import time
 from pathlib import Path
+
+# Add skills/lib to path for shared modules
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent / "lib"))
+from env_config import HardwareEnv  # noqa: E402
 
 
 # Model size → ultralytics model name mapping (YOLO26, released Jan 2026)
@@ -49,24 +53,22 @@ class PerfTracker:
 
         # One-time timings (ms)
         self.model_load_ms = 0.0
-        self.coreml_export_ms = 0.0
+        self.export_ms = 0.0
 
         # Per-frame accumulators (ms)
         self._timings: dict[str, list[float]] = {
-            "file_read":    [],   # frame_path existence check + file I/O
-            "inference":    [],   # model(frame_path, ...)
-            "postprocess":  [],   # bbox extraction + filtering
-            "emit":         [],   # JSON serialization + print
-            "total":        [],   # end-to-end per frame
+            "file_read":    [],
+            "inference":    [],
+            "postprocess":  [],
+            "emit":         [],
+            "total":        [],
         }
 
     def record(self, stage: str, duration_ms: float):
-        """Record a timing for a pipeline stage."""
         if stage in self._timings:
             self._timings[stage].append(duration_ms)
 
     def record_frame(self):
-        """Increment frame counter and emit stats if interval reached."""
         self.frame_count += 1
         self.total_frames += 1
         if self.frame_count >= self.interval:
@@ -74,7 +76,6 @@ class PerfTracker:
             self.frame_count = 0
 
     def emit_stats(self):
-        """Emit aggregate statistics as a JSONL event."""
         stats = {
             "event": "perf_stats",
             "total_frames": self.total_frames,
@@ -83,9 +84,8 @@ class PerfTracker:
             "model_load_ms": round(self.model_load_ms, 1),
             "timings_ms": {},
         }
-
-        if self.coreml_export_ms > 0:
-            stats["coreml_export_ms"] = round(self.coreml_export_ms, 1)
+        if self.export_ms > 0:
+            stats["export_ms"] = round(self.export_ms, 1)
 
         for stage, values in self._timings.items():
             if not values:
@@ -100,15 +100,11 @@ class PerfTracker:
                 "p95": round(sorted_v[int(n * 0.95)], 2),
                 "p99": round(sorted_v[int(n * 0.99)], 2),
             }
-
         emit(stats)
-
-        # Reset per-frame accumulators for next window
         for key in self._timings:
             self._timings[key].clear()
 
     def emit_final(self):
-        """Emit remaining stats on shutdown."""
         if self._timings["total"]:
             self.emit_stats()
 
@@ -134,7 +130,6 @@ def load_config(args):
     """Load config from JSON file, CLI args, or AEGIS_SKILL_PARAMS env var."""
     import os
 
-    # Priority 1: AEGIS_SKILL_PARAMS env var (set by Aegis skill-runtime-manager)
     env_params = os.environ.get("AEGIS_SKILL_PARAMS")
     if env_params:
         try:
@@ -142,14 +137,12 @@ def load_config(args):
         except json.JSONDecodeError:
             pass
 
-    # Priority 2: Config file
     if args.config:
         config_path = Path(args.config)
         if config_path.exists():
             with open(config_path) as f:
                 return json.load(f)
 
-    # Priority 3: CLI args
     return {
         "model_size": args.model_size,
         "confidence": args.confidence,
@@ -159,88 +152,12 @@ def load_config(args):
     }
 
 
-def select_device(preference: str) -> str:
-    """Select the best available inference device."""
-    if preference not in ("auto", ""):
-        return preference
-    try:
-        import torch
-        if torch.cuda.is_available():
-            return "cuda"
-        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-            return "mps"
-    except ImportError:
-        pass
-    return "cpu"
-
-
 def emit(event: dict):
-    """Write a JSON line to stdout."""
     print(json.dumps(event), flush=True)
 
 
 def log(msg: str):
-    """Write a log message to stderr (visible in Aegis deploy console)."""
     print(f"[YOLO-2026] {msg}", file=sys.stderr, flush=True)
-
-
-def try_coreml_export(model, model_name: str, perf: PerfTracker) -> "Path | None":
-    """Export PyTorch model to CoreML. Returns path to .mlpackage or None."""
-    coreml_path = Path(f"{model_name}.mlpackage")
-
-    # Already exported
-    if coreml_path.exists():
-        log(f"CoreML model found: {coreml_path}")
-        return coreml_path
-
-    try:
-        log(f"Exporting {model_name}.pt → CoreML (one-time, ~30s)...")
-        t0 = time.perf_counter()
-        exported = model.export(format="coreml", half=True, nms=False)
-        perf.coreml_export_ms = (time.perf_counter() - t0) * 1000
-        exported_path = Path(exported)
-        if exported_path.exists():
-            log(f"CoreML export complete: {exported_path} ({perf.coreml_export_ms:.0f}ms)")
-            return exported_path
-        log(f"CoreML export returned path {exported} but file not found")
-    except Exception as e:
-        log(f"CoreML export failed: {e}")
-
-    return None
-
-
-def load_model(model_name: str, device: str, use_coreml: bool, perf: PerfTracker):
-    """Load YOLO model — CoreML on MPS if available, PyTorch otherwise."""
-    from ultralytics import YOLO
-
-    model_format = "pytorch"
-    t0 = time.perf_counter()
-
-    # Try CoreML on Apple Silicon
-    if device == "mps" and use_coreml:
-        pt_model = YOLO(f"{model_name}.pt")
-        coreml_path = try_coreml_export(pt_model, model_name, perf)
-
-        if coreml_path:
-            try:
-                model = YOLO(str(coreml_path))
-                model_format = "coreml"
-                perf.model_load_ms = (time.perf_counter() - t0) * 1000
-                log(f"Loaded CoreML model ({coreml_path}) in {perf.model_load_ms:.0f}ms")
-                return model, model_format
-            except Exception as e:
-                log(f"CoreML load failed, falling back to PyTorch MPS: {e}")
-
-        # Fallback: use the already-loaded PyTorch model on MPS
-        pt_model.to(device)
-        perf.model_load_ms = (time.perf_counter() - t0) * 1000
-        return pt_model, model_format
-
-    # Non-CoreML path: standard PyTorch
-    model = YOLO(f"{model_name}.pt")
-    model.to(device)
-    perf.model_load_ms = (time.perf_counter() - t0) * 1000
-    return model, model_format
 
 
 # ───────────────────────────────────────────────────────────────────────────────
@@ -251,39 +168,39 @@ def main():
     args = parse_args()
     config = load_config(args)
 
-    # Resolve config values
     model_size = config.get("model_size", "nano")
-    device = select_device(config.get("device", "auto"))
     confidence = config.get("confidence", 0.5)
     fps = config.get("fps", 5)
-    use_coreml = config.get("use_coreml", True)
+    use_optimized = config.get("use_coreml", True)  # legacy key, now covers all backends
+    if isinstance(use_optimized, str):
+        use_optimized = use_optimized.lower() in ("true", "1", "yes")
 
-    # Coerce use_coreml from string "true"/"false" if passed via env
-    if isinstance(use_coreml, str):
-        use_coreml = use_coreml.lower() in ("true", "1", "yes")
-
-    # Map size to ultralytics model name
     model_name = MODEL_SIZE_MAP.get(model_size, "yolo26n")
 
     target_classes = config.get("classes", ["person", "car", "dog", "cat"])
     if isinstance(target_classes, str):
         target_classes = [c.strip() for c in target_classes.split(",")]
 
-    # Performance tracker
+    # ── Hardware detection & optimized model loading ──
+    env = HardwareEnv.detect()
     perf = PerfTracker(interval=PERF_STATS_INTERVAL)
 
-    # Load YOLO model (with CoreML auto-conversion on MPS)
     try:
-        model, model_format = load_model(model_name, device, use_coreml, perf)
+        model, model_format = env.load_optimized(model_name, use_optimized=use_optimized)
+        perf.model_load_ms = env.load_ms
+        perf.export_ms = env.export_ms
+
         emit({
             "event": "ready",
             "model": f"yolo2026{model_size[0]}",
             "model_size": model_size,
-            "device": device,
+            "device": env.device,
+            "backend": env.backend,
             "format": model_format,
+            "gpu": env.gpu_name,
             "classes": len(model.names),
             "fps": fps,
-            "model_load_ms": round(perf.model_load_ms, 1),
+            "model_load_ms": round(env.load_ms, 1),
             "available_sizes": list(MODEL_SIZE_MAP.keys()),
         })
     except Exception as e:
@@ -323,7 +240,6 @@ def main():
             camera_id = msg.get("camera_id", "unknown")
             timestamp = msg.get("timestamp", "")
 
-            # ── File check ──
             t0 = time.perf_counter()
             if not frame_path or not Path(frame_path).exists():
                 emit({
@@ -336,13 +252,11 @@ def main():
                 continue
             perf.record("file_read", (time.perf_counter() - t0) * 1000)
 
-            # ── Inference ──
             try:
                 t0 = time.perf_counter()
                 results = model(frame_path, conf=confidence, verbose=False)
                 perf.record("inference", (time.perf_counter() - t0) * 1000)
 
-                # ── Postprocess ──
                 t0 = time.perf_counter()
                 objects = []
                 for r in results:
@@ -358,7 +272,6 @@ def main():
                             })
                 perf.record("postprocess", (time.perf_counter() - t0) * 1000)
 
-                # ── Emit ──
                 t0 = time.perf_counter()
                 emit({
                     "event": "detections",
@@ -379,11 +292,9 @@ def main():
                 perf.error_count += 1
                 continue
 
-            # ── Total frame time ──
             perf.record("total", (time.perf_counter() - t_frame_start) * 1000)
             perf.record_frame()
 
-    # Emit final stats on shutdown
     perf.emit_final()
 
 
