@@ -7,7 +7,7 @@
 
 ## Application 1: Self-supervised Person Recognition (REID) for Intruder Detection
 
-SharpAI yolov7_reid is an open source python application that leverages AI technologies to detect intruders with traditional surveillance cameras. [Source code](https://github.com/SharpAI/DeepCamera/blob/master/src/yolov7_reid/src/detector_cpu.py)
+SharpAI yolov7_reid is an open source python application that leverages AI technologies to detect intruders with traditional surveillance cameras. [Source code](https://github.com/SharpAI/DeepCamera/blob/master/src/yolov7_reid/src/detector.py)
 
 It leverages Yolov7 as person detector, FastReID for person feature extraction, Milvus the local vector database for self-supervised learning to identify unseen persons, Labelstudio to host images locally and for further usage such as labeling data and training your own classifier. It also integrates with Home-Assistant to empower smart home with AI technology.
 

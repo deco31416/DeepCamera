@@ -80,13 +80,44 @@ try { skillParams = JSON.parse(process.env.AEGIS_SKILL_PARAMS || '{}'); } catch 
 
 // Aegis provides config via env vars; CLI args are fallback for standalone
 const GATEWAY_URL = process.env.AEGIS_GATEWAY_URL || getArg('gateway', 'http://localhost:5407');
+const LLM_URL = process.env.AEGIS_LLM_URL || getArg('llm', '');  // Direct llama-server LLM port
 const VLM_URL = process.env.AEGIS_VLM_URL || getArg('vlm', '');
 const RESULTS_DIR = getArg('out', path.join(os.homedir(), '.aegis-ai', 'benchmarks'));
 const IS_SKILL_MODE = !!process.env.AEGIS_SKILL_ID;
 const NO_OPEN = args.includes('--no-open') || skillParams.noOpen || false;
 const TEST_MODE = skillParams.mode || 'full';
-const TIMEOUT_MS = 30000;
+const IDLE_TIMEOUT_MS = 30000; // Streaming idle timeout — resets on each received token
 const FIXTURES_DIR = path.join(__dirname, '..', 'fixtures');
+
+// API type and model info from Aegis (or defaults for standalone)
+const LLM_API_TYPE = process.env.AEGIS_LLM_API_TYPE || 'openai';
+const LLM_MODEL = process.env.AEGIS_LLM_MODEL || '';
+const LLM_API_KEY = process.env.AEGIS_LLM_API_KEY || '';
+const LLM_BASE_URL = process.env.AEGIS_LLM_BASE_URL || '';
+const VLM_API_TYPE = process.env.AEGIS_VLM_API_TYPE || 'openai-compatible';
+const VLM_MODEL = process.env.AEGIS_VLM_MODEL || '';
+
+// ─── OpenAI SDK Clients ──────────────────────────────────────────────────────
+const OpenAI = require('openai');
+
+// Resolve LLM base URL — priority: cloud provider → direct llama-server → gateway
+const strip = (u) => u.replace(/\/v1\/?$/, '');
+const llmBaseUrl = LLM_BASE_URL
+    ? `${strip(LLM_BASE_URL)}/v1`
+    : LLM_URL
+        ? `${strip(LLM_URL)}/v1`
+        : `${GATEWAY_URL}/v1`;
+
+const llmClient = new OpenAI({
+    apiKey: LLM_API_KEY || 'not-needed',  // Local servers don't require auth
+    baseURL: llmBaseUrl,
+});
+
+// VLM client — always local llama-server
+const vlmClient = VLM_URL ? new OpenAI({
+    apiKey: 'not-needed',
+    baseURL: `${strip(VLM_URL)}/v1`,
+}) : null;
 
 // ─── Skill Protocol: JSON lines on stdout, human text on stderr ──────────────
 
@@ -127,44 +158,95 @@ const results = {
 };
 
 async function llmCall(messages, opts = {}) {
-    const body = { messages, stream: false };
-    if (opts.maxTokens) body.max_tokens = opts.maxTokens;
-    if (opts.temperature !== undefined) body.temperature = opts.temperature;
-    if (opts.tools) body.tools = opts.tools;
-
-    // Strip trailing /v1 from VLM_URL to avoid double-path (e.g. host:5405/v1/v1/...)
-    const vlmBase = VLM_URL ? VLM_URL.replace(/\/v1\/?$/, '') : '';
-    const url = opts.vlm ? `${vlmBase}/v1/chat/completions` : `${GATEWAY_URL}/v1/chat/completions`;
-    const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(opts.timeout || TIMEOUT_MS),
-    });
-
-    if (!response.ok) {
-        const errBody = await response.text().catch(() => '');
-        throw new Error(`HTTP ${response.status}: ${errBody.slice(0, 200)}`);
+    // Select the appropriate OpenAI client (LLM or VLM)
+    const client = opts.vlm ? vlmClient : llmClient;
+    if (!client) {
+        throw new Error(opts.vlm ? 'VLM client not configured' : 'LLM client not configured');
     }
 
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || '';
-    const toolCalls = data.choices?.[0]?.message?.tool_calls || null;
-    const usage = data.usage || {};
+    const model = opts.model || (opts.vlm ? VLM_MODEL : LLM_MODEL) || undefined;
 
-    // Track token totals
-    results.tokenTotals.prompt += usage.prompt_tokens || 0;
-    results.tokenTotals.completion += usage.completion_tokens || 0;
-    results.tokenTotals.total += usage.total_tokens || 0;
+    // Build request params
+    const params = {
+        messages,
+        stream: true,
+        ...(model && { model }),
+        ...(opts.temperature !== undefined && { temperature: opts.temperature }),
+        ...(opts.maxTokens && { max_completion_tokens: opts.maxTokens }),
+        ...(opts.tools && { tools: opts.tools }),
+    };
 
-    // Capture model name from first response
-    if (opts.vlm) {
-        if (!results.model.vlm && data.model) results.model.vlm = data.model;
-    } else {
-        if (!results.model.name && data.model) results.model.name = data.model;
+    // Use an AbortController with idle timeout that resets on each streamed chunk.
+    const controller = new AbortController();
+    const idleMs = opts.timeout || IDLE_TIMEOUT_MS;
+    let idleTimer = setTimeout(() => controller.abort(), idleMs);
+    const resetIdle = () => { clearTimeout(idleTimer); idleTimer = setTimeout(() => controller.abort(), idleMs); };
+
+    try {
+        const stream = await client.chat.completions.create(params, {
+            signal: controller.signal,
+        });
+
+        let content = '';
+        let reasoningContent = '';
+        let toolCalls = null;
+        let model = '';
+        let usage = {};
+        let tokenCount = 0;
+
+        for await (const chunk of stream) {
+            resetIdle();
+
+            if (chunk.model) model = chunk.model;
+
+            const delta = chunk.choices?.[0]?.delta;
+            if (delta?.content) content += delta.content;
+            if (delta?.reasoning_content) reasoningContent += delta.reasoning_content;
+            if (delta?.content || delta?.reasoning_content) {
+                tokenCount++;
+                if (tokenCount % 100 === 0) {
+                    log(`    … ${tokenCount} tokens received`);
+                }
+            }
+
+            if (delta?.tool_calls) {
+                if (!toolCalls) toolCalls = [];
+                for (const tc of delta.tool_calls) {
+                    const idx = tc.index ?? 0;
+                    if (!toolCalls[idx]) {
+                        toolCalls[idx] = { id: tc.id, type: tc.type || 'function', function: { name: '', arguments: '' } };
+                    }
+                    if (tc.function?.name) toolCalls[idx].function.name += tc.function.name;
+                    if (tc.function?.arguments) toolCalls[idx].function.arguments += tc.function.arguments;
+                }
+            }
+
+            if (chunk.usage) usage = chunk.usage;
+        }
+
+        // If the model only produced reasoning_content (thinking) with no content,
+        // use the reasoning output as the response content for evaluation purposes.
+        if (!content && reasoningContent) {
+            content = reasoningContent;
+        }
+
+        // Track token totals
+        results.tokenTotals.prompt += usage.prompt_tokens || 0;
+        results.tokenTotals.completion += usage.completion_tokens || 0;
+        results.tokenTotals.total += usage.total_tokens || 0;
+
+        // Capture model name from first response
+        if (opts.vlm) {
+            if (!results.model.vlm && model) results.model.vlm = model;
+        } else {
+            if (!results.model.name && model) results.model.name = model;
+        }
+
+        return { content, toolCalls, usage, model };
+    } finally {
+        clearTimeout(idleTimer);
     }
 
-    return { content, toolCalls, usage, model: data.model };
 }
 
 function stripThink(text) {
@@ -1675,28 +1757,33 @@ async function main() {
     log('╔══════════════════════════════════════════════════════════════════╗');
     log('║   Home Security AI Benchmark Suite  •  DeepCamera / SharpAI     ║');
     log('╚══════════════════════════════════════════════════════════════════╝');
-    log(`  Gateway:  ${GATEWAY_URL}`);
-    log(`  VLM:      ${VLM_URL || '(disabled — use --vlm URL to enable)'}`);
+    // Resolve the LLM endpoint that will actually be used
+    const effectiveLlmUrl = LLM_BASE_URL
+        ? LLM_BASE_URL.replace(/\/v1\/?$/, '')
+        : LLM_URL
+            ? LLM_URL.replace(/\/v1\/?$/, '')
+            : GATEWAY_URL;
+
+    log(`  LLM:      ${LLM_API_TYPE} @ ${effectiveLlmUrl}${LLM_MODEL ? ' → ' + LLM_MODEL : ''}`);
+    log(`  VLM:      ${VLM_URL || '(disabled — use --vlm URL to enable)'}${VLM_MODEL ? ' → ' + VLM_MODEL : ''}`);
     log(`  Results:  ${RESULTS_DIR}`);
-    log(`  Mode:     ${IS_SKILL_MODE ? 'Aegis Skill' : 'Standalone'}`);
+    log(`  Mode:     ${IS_SKILL_MODE ? 'Aegis Skill' : 'Standalone'} (streaming, ${IDLE_TIMEOUT_MS / 1000}s idle timeout)`);
     log(`  Time:     ${new Date().toLocaleString()}`);
 
-    // Healthcheck
+    // Healthcheck — ping the LLM endpoint via SDK
     try {
-        const ping = await fetch(`${GATEWAY_URL}/v1/chat/completions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ messages: [{ role: 'user', content: 'ping' }], stream: false, max_tokens: 1 }),
-            signal: AbortSignal.timeout(15000),
+        const ping = await llmClient.chat.completions.create({
+            ...(LLM_MODEL && { model: LLM_MODEL }),
+            messages: [{ role: 'user', content: 'ping' }],
+            max_completion_tokens: 5,
         });
-        if (!ping.ok) throw new Error(`HTTP ${ping.status}`);
-        const data = await ping.json();
-        results.model.name = data.model || 'unknown';
+        results.model.name = ping.model || 'unknown';
         log(`  Model:    ${results.model.name}`);
     } catch (err) {
-        log(`\n  ❌ Cannot reach LLM gateway: ${err.message}`);
-        log('     Start the llama-cpp server and gateway, then re-run.\n');
-        emit({ event: 'error', message: `Cannot reach LLM gateway: ${err.message}` });
+        log(`\n  ❌ Cannot reach LLM endpoint: ${err.message}`);
+        log(`     Base URL: ${llmBaseUrl}`);
+        log('     Check that the LLM server is running.\n');
+        emit({ event: 'error', message: `Cannot reach LLM endpoint: ${err.message}` });
         process.exit(1);
     }
 

@@ -28,20 +28,23 @@
 
 Each skill is a self-contained module with its own model, parameters, and [communication protocol](docs/skill-development.md). See the [Skill Development Guide](docs/skill-development.md) and [Platform Parameters](docs/skill-params.md) to build your own.
 
-| Category | Skill | What It Does |
-|----------|-------|--------------|
-| **Detection** | [`yolo-detection-2026`](skills/detection/yolo-detection-2026/) | Real-time 80+ class object detection |
-| | [`dinov3-grounding`](skills/detection/dinov3-grounding/) | Open-vocabulary detection — describe what to find |
-| | [`person-recognition`](skills/detection/person-recognition/) | Re-identify individuals across cameras |
-| **Analysis** | [`vlm-scene-analysis`](skills/analysis/vlm-scene-analysis/) | Describe what happened in recorded clips |
-| | [`sam2-segmentation`](skills/analysis/sam2-segmentation/) | Click-to-segment with pixel-perfect masks |
-| **Transformation** | [`depth-estimation`](skills/transformation/depth-estimation/) | Monocular depth maps with Depth Anything v2 |
-| **Annotation** | [`dataset-annotation`](skills/annotation/dataset-annotation/) | AI-assisted labeling → COCO export |
-| **Camera Providers** | [`eufy`](skills/camera-providers/eufy/) · [`reolink`](skills/camera-providers/reolink/) · [`tapo`](skills/camera-providers/tapo/) | Direct camera integrations via RTSP |
-| **Streaming** | [`go2rtc-cameras`](skills/streaming/go2rtc-cameras/) | RTSP → WebRTC live view |
-| **Channels** | [`matrix`](skills/channels/matrix/) · [`line`](skills/channels/line/) · [`signal`](skills/channels/signal/) | Messaging channels for Clawdbot agent |
-| **Automation** | [`mqtt`](skills/automation/mqtt/) · [`webhook`](skills/automation/webhook/) · [`ha-trigger`](skills/automation/ha-trigger/) | Event-driven automation triggers |
-| **Integrations** | [`homeassistant-bridge`](skills/integrations/homeassistant-bridge/) | HA cameras in ↔ detection results out |
+| Category | Skill | What It Does | Status |
+|----------|-------|--------------|:------:|
+| **Detection** | [`yolo-detection-2026`](skills/detection/yolo-detection-2026/) | Real-time 80+ class object detection | ✅|
+| | [`dinov3-grounding`](skills/detection/dinov3-grounding/) | Open-vocabulary detection — describe what to find | 📐 |
+| | [`person-recognition`](skills/detection/person-recognition/) | Re-identify individuals across cameras | 📐 |
+| **Analysis** | [`home-security-benchmark`](skills/analysis/home-security-benchmark/) | [131-test evaluation suite](#-homesec-bench--how-secure-is-your-local-ai) for LLM & VLM security performance | ✅ |
+| | [`vlm-scene-analysis`](skills/analysis/vlm-scene-analysis/) | Describe what happened in recorded clips | 📐 |
+| | [`sam2-segmentation`](skills/analysis/sam2-segmentation/) | Click-to-segment with pixel-perfect masks | 📐 |
+| **Transformation** | [`depth-estimation`](skills/transformation/depth-estimation/) | Monocular depth maps with Depth Anything v2 | 📐 |
+| **Annotation** | [`dataset-annotation`](skills/annotation/dataset-annotation/) | AI-assisted labeling → COCO export | 📐 |
+| **Camera Providers** | [`eufy`](skills/camera-providers/eufy/) · [`reolink`](skills/camera-providers/reolink/) · [`tapo`](skills/camera-providers/tapo/) | Direct camera integrations via RTSP | 📐 |
+| **Streaming** | [`go2rtc-cameras`](skills/streaming/go2rtc-cameras/) | RTSP → WebRTC live view | 📐 |
+| **Channels** | [`matrix`](skills/channels/matrix/) · [`line`](skills/channels/line/) · [`signal`](skills/channels/signal/) | Messaging channels for Clawdbot agent | 📐 |
+| **Automation** | [`mqtt`](skills/automation/mqtt/) · [`webhook`](skills/automation/webhook/) · [`ha-trigger`](skills/automation/ha-trigger/) | Event-driven automation triggers | 📐 |
+| **Integrations** | [`homeassistant-bridge`](skills/integrations/homeassistant-bridge/) | HA cameras in ↔ detection results out | 📐 |
+
+> ✅ Ready · 🧪 Testing · 📐 Planned
 
 > **Registry:** All skills are indexed in [`skills.json`](skills.json) for programmatic discovery.
 
