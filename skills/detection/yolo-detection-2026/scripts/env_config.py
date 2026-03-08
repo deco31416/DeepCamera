@@ -338,6 +338,20 @@ class HardwareEnv:
             _log(f"Cached model found: {optimized_path}")
             return optimized_path
 
+        # Guard: numpy 2.x breaks coremltools PyTorch→MIL converter
+        # (TypeError: only 0-dimensional arrays can be converted to Python scalars)
+        if spec.export_format == "coreml":
+            try:
+                import numpy as np
+                np_major = int(np.__version__.split('.')[0])
+                if np_major >= 2:
+                    _log(f"numpy {np.__version__} detected — CoreML export "
+                         f"requires numpy<2.0.0 (coremltools incompatibility)")
+                    _log("Fix: pip install 'numpy>=1.24,<2.0'")
+                    return None
+            except Exception:
+                pass  # If numpy check fails, try export anyway
+
         try:
             _log(f"Exporting {model_name}.pt → {spec.export_format} "
                  f"(one-time, may take 30-120s)...")

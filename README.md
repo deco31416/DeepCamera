@@ -42,7 +42,8 @@ Each skill is a self-contained module with its own model, parameters, and [commu
 | **Detection** | [`yolo-detection-2026`](skills/detection/yolo-detection-2026/) | Real-time 80+ class detection — auto-accelerated via TensorRT / CoreML / OpenVINO / ONNX | ✅|
 | | [`dinov3-grounding`](skills/detection/dinov3-grounding/) | Open-vocabulary detection — describe what to find | 📐 |
 | | [`person-recognition`](skills/detection/person-recognition/) | Re-identify individuals across cameras | 📐 |
-| **Analysis** | [`home-security-benchmark`](skills/analysis/home-security-benchmark/) | [131-test evaluation suite](#-homesec-bench--how-secure-is-your-local-ai) for LLM & VLM security performance | ✅ |
+| **Analysis** | [`home-security-benchmark`](skills/analysis/home-security-benchmark/) | [143-test evaluation suite](#-homesec-bench--how-secure-is-your-local-ai) for LLM & VLM security performance | ✅ |
+| | [`smarthome-bench`](skills/analysis/smarthome-bench/) | Video anomaly detection benchmark — 105 clips across 7 smart home categories | ✅ |
 | | [`vlm-scene-analysis`](skills/analysis/vlm-scene-analysis/) | Describe what happened in recorded clips | 📐 |
 | | [`sam2-segmentation`](skills/analysis/sam2-segmentation/) | Click-to-segment with pixel-perfect masks | 📐 |
 | **Transformation** | [`depth-estimation`](skills/transformation/depth-estimation/) | Monocular depth maps with Depth Anything v2 | 📐 |
@@ -140,7 +141,7 @@ Camera → Frame Governor → detect.py (JSONL) → Aegis IPC → Live Overlay
 
 ## 📊 HomeSec-Bench — How Secure Is Your Local AI?
 
-**HomeSec-Bench** is a 131-test security benchmark that measures how well your local AI performs as a security guard. It tests what matters: Can it detect a person in fog? Classify a break-in vs. a delivery? Resist prompt injection? Route alerts correctly at 3 AM?
+**HomeSec-Bench** is a 143-test security benchmark that measures how well your local AI performs as a security guard. It tests what matters: Can it detect a person in fog? Classify a break-in vs. a delivery? Resist prompt injection? Route alerts correctly at 3 AM?
 
 Run it on your own hardware to know exactly where your setup stands.
 

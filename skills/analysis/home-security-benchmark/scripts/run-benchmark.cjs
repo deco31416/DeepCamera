@@ -1704,6 +1704,68 @@ suite('📸 VLM Scene Analysis', async () => {
             prompt: 'Describe this outdoor area. Are there any people present? What objects are visible?',
             expect: ['patio', 'furniture', 'table', 'chair', 'grill', 'empty', 'no one', 'no people']
         },
+
+        // Category E: Indoor Safety Hazards (12)
+        {
+            name: 'Stove smoke → kitchen fire hazard', file: 'indoor_fire_stove.png',
+            prompt: 'Describe this indoor security camera scene. Are there any fire or smoke hazards visible?',
+            expect: ['smoke', 'fire', 'stove', 'kitchen', 'cook', 'pot', 'steam']
+        },
+        {
+            name: 'Candle near curtain → fire risk', file: 'indoor_fire_candle.png',
+            prompt: 'Describe this indoor scene. Is there any fire risk from open flames near flammable materials?',
+            expect: ['candle', 'fire', 'curtain', 'flame', 'drape', 'fabric', 'risk']
+        },
+        {
+            name: 'Overloaded power strip → electrical hazard', file: 'indoor_elec_powerstrip.png',
+            prompt: 'Describe what you see. Are there any electrical safety hazards?',
+            expect: ['overload', 'power', 'electrical', 'plug', 'strip', 'cable', 'cord', 'outlet']
+        },
+        {
+            name: 'Frayed cord → electrical fire risk', file: 'indoor_elec_cord.png',
+            prompt: 'Describe the condition of the electrical cord. Is there any damage that could be dangerous?',
+            expect: ['fray', 'cord', 'damage', 'wire', 'worn', 'exposed', 'cable']
+        },
+        {
+            name: 'Toys on stairs → trip hazard', file: 'indoor_trip_stairs.png',
+            prompt: 'Describe this scene. Are there any trip or fall hazards on the staircase?',
+            expect: ['toy', 'stair', 'trip', 'hazard', 'ball', 'fall', 'step']
+        },
+        {
+            name: 'Wet floor → slip hazard', file: 'indoor_trip_wetfloor.png',
+            prompt: 'Describe the floor condition in this scene. Is there any slip hazard?',
+            expect: ['wet', 'slip', 'water', 'floor', 'puddle', 'spill']
+        },
+        {
+            name: 'Person on floor → medical emergency', file: 'indoor_fall_person.png',
+            prompt: 'Describe what you see. Is anyone in distress or in need of medical help?',
+            expect: ['person', 'fall', 'lying', 'floor', 'down', 'help', 'cane', 'elder']
+        },
+        {
+            name: 'Open cabinet chemicals → child safety', file: 'indoor_child_cabinet.png',
+            prompt: 'Describe this kitchen scene. Are there any child safety concerns with accessible chemicals?',
+            expect: ['cabinet', 'chemical', 'clean', 'open', 'bottle', 'danger', 'safety']
+        },
+        {
+            name: 'Cluttered exit → blocked fire exit', file: 'indoor_blocked_exit.png',
+            prompt: 'Describe this scene. Is the exit or doorway clear or obstructed?',
+            expect: ['block', 'exit', 'clutter', 'door', 'box', 'obstruct', 'furniture']
+        },
+        {
+            name: 'Space heater near drape → fire ignition risk', file: 'indoor_fire_heater.png',
+            prompt: 'Describe this bedroom scene. Is the space heater positioned safely?',
+            expect: ['heater', 'drape', 'fire', 'curtain', 'close', 'fabric', 'risk']
+        },
+        {
+            name: 'Items on high shelf → falling object risk', file: 'indoor_fall_shelf.png',
+            prompt: 'Describe the shelf and items on it. Are there any falling object hazards?',
+            expect: ['shelf', 'fall', 'heavy', 'unstable', 'box', 'stack', 'top']
+        },
+        {
+            name: 'Iron left face-down → burn/fire risk', file: 'indoor_fire_iron.png',
+            prompt: 'Describe this laundry scene. Is the iron being used safely?',
+            expect: ['iron', 'burn', 'fire', 'left', 'hot', 'steam', 'unattended', 'board']
+        },
     ];
 
     // ─── Run all VLM tests ──────────────────────────────────────────────

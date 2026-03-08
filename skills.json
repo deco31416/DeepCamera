@@ -96,6 +96,75 @@
         "medium",
         "large"
       ]
+    },
+    {
+      "id": "smarthome-bench",
+      "name": "SmartHome Video Anomaly Benchmark",
+      "description": "VLM evaluation suite for video anomaly detection in smart home camera footage — 7 categories, 105 curated clips from SmartHome-Bench.",
+      "version": "1.0.0",
+      "category": "analysis",
+      "path": "skills/analysis/smarthome-bench",
+      "tags": [
+        "benchmark",
+        "vlm",
+        "video",
+        "anomaly-detection",
+        "smart-home"
+      ],
+      "platforms": [
+        "linux-x64",
+        "linux-arm64",
+        "darwin-arm64",
+        "darwin-x64",
+        "win-x64"
+      ],
+      "requirements": {
+        "node": ">=18",
+        "ram_gb": 2,
+        "system_deps": [
+          "yt-dlp",
+          "ffmpeg"
+        ]
+      },
+      "capabilities": [
+        "benchmark",
+        "report_generation"
+      ],
+      "ui_unlocks": [
+        "benchmark_report"
+      ]
+    },
+    {
+      "id": "homesafe-bench",
+      "name": "HomeSafe Indoor Safety Benchmark",
+      "description": "VLM evaluation suite for indoor home safety hazard detection — 40 tests across 5 categories: fire/smoke, electrical, trip/fall, child safety, falling objects.",
+      "version": "1.0.0",
+      "category": "analysis",
+      "path": "skills/analysis/homesafe-bench",
+      "tags": [
+        "benchmark",
+        "vlm",
+        "safety",
+        "hazard",
+        "indoor"
+      ],
+      "platforms": [
+        "linux-x64",
+        "linux-arm64",
+        "darwin-arm64",
+        "darwin-x64",
+        "win-x64"
+      ],
+      "requirements": {
+        "node": ">=18",
+        "ram_gb": 2
+      },
+      "capabilities": [
+        "benchmark"
+      ],
+      "ui_unlocks": [
+        "benchmark_report"
+      ]
     }
   ]
 }

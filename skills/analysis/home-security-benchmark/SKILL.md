@@ -1,7 +1,7 @@
 ---
 name: Home Security AI Benchmark
 description: LLM & VLM evaluation suite for home security AI applications
-version: 2.0.0
+version: 2.1.0
 category: analysis
 runtime: node
 entry: scripts/run-benchmark.cjs
@@ -15,7 +15,7 @@ requirements:
 
 # Home Security AI Benchmark
 
-Comprehensive benchmark suite evaluating LLM and VLM models on **131 tests** across **16 suites** — context preprocessing, tool use, security classification, prompt injection resistance, alert routing, knowledge injection, VLM-to-alert triage, and scene analysis.
+Comprehensive benchmark suite evaluating LLM and VLM models on **143 tests** across **16 suites** — context preprocessing, tool use, security classification, prompt injection resistance, alert routing, knowledge injection, VLM-to-alert triage, and scene analysis.
 
 ## Setup
 
@@ -76,7 +76,7 @@ This skill includes a [`config.yaml`](config.yaml) that defines user-configurabl
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `mode` | select | `llm` | Which suites to run: `llm` (96 tests), `vlm` (35 tests), or `full` (131 tests) |
+| `mode` | select | `llm` | Which suites to run: `llm` (96 tests), `vlm` (47 tests), or `full` (143 tests) |
 | `noOpen` | boolean | `false` | Skip auto-opening the HTML report in browser |
 
 Platform parameters like `AEGIS_GATEWAY_URL` and `AEGIS_VLM_URL` are auto-injected by Aegis — they are **not** in `config.yaml`. See [Aegis Skill Platform Parameters](../../../docs/skill-params.md) for the full platform contract.
@@ -112,7 +112,7 @@ AEGIS_SKILL_PARAMS={}
 
 Human-readable output goes to **stderr** (visible in Aegis console tab).
 
-## Test Suites (131 Tests)
+## Test Suites (143 Tests)
 
 | Suite | Tests | Domain |
 |-------|-------|--------|
@@ -131,7 +131,7 @@ Human-readable output goes to **stderr** (visible in Aegis console tab).
 | Alert Routing & Subscription | 5 | Channel targeting, schedule CRUD |
 | Knowledge Injection to Dialog | 5 | KI-personalized responses |
 | VLM-to-Alert Triage | 5 | Urgency classification from VLM |
-| VLM Scene Analysis | 35 | Frame entity detection & description |
+| VLM Scene Analysis | 47 | Frame entity detection & description (outdoor + indoor safety) |
 
 ## Results
 
@@ -142,4 +142,4 @@ Results are saved to `~/.aegis-ai/benchmarks/` as JSON. An HTML report with cros
 - Node.js ≥ 18
 - `npm install` (for `openai` SDK dependency)
 - Running LLM server (llama-server, OpenAI API, or any OpenAI-compatible endpoint)
-- Optional: Running VLM server for scene analysis tests (35 tests)
+- Optional: Running VLM server for scene analysis tests (47 tests)
