@@ -55,7 +55,7 @@ Each skill is a self-contained module with its own model, parameters, and [commu
 - [x] **Hardware environment layer** — shared [`env_config.py`](skills/lib/env_config.py) for auto-detection + model optimization across NVIDIA, AMD, Apple Silicon, Intel, and CPU
 - [x] **Skill Store UI** — browse, install, and configure skills from Aegis
 - [x] **GPU / NPU / CPU (AIPC) aware installation** — auto-detect hardware, install matching frameworks, convert models to optimal format
-- [ ] **AI/LLM-assisted skill installation** — community-contributed skills installed and configured via AI agent
+- [x] **AI/LLM-assisted skill installation** — community-contributed skills installed and configured via AI agent
 - [ ] **Skill development guide** — documentation for building custom skills
 
 ## 🚀 Getting Started with [SharpAI Aegis](https://www.sharpai.org)
