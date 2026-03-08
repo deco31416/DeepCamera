@@ -1,11 +1,19 @@
 ---
 name: yolo-detection-2026
 description: "YOLO 2026 — state-of-the-art real-time object detection"
-version: 1.0.0
+version: 2.0.0
 icon: assets/icon.png
 entry: scripts/detect.py
+deploy: deploy.sh
 
 parameters:
+  - name: auto_start
+    label: "Auto Start"
+    type: boolean
+    default: false
+    description: "Start this skill automatically when Aegis launches"
+    group: Lifecycle
+
   - name: model_size
     label: "Model Size"
     type: select
@@ -45,6 +53,13 @@ parameters:
     description: "auto = best available GPU, else CPU"
     group: Performance
 
+  - name: use_optimized
+    label: "Hardware Acceleration"
+    type: boolean
+    default: true
+    description: "Auto-convert model to optimized format for faster inference"
+    group: Performance
+
 capabilities:
   live_detection:
     script: scripts/detect.py
@@ -64,6 +79,50 @@ Real-time object detection using the latest YOLO 2026 models. Detects 80+ COCO o
 | medium | Moderate | High | Accuracy-focused deployments |
 | large | Slower | Highest | Maximum detection quality |
 
+## Hardware Acceleration
+
+The skill uses [`env_config.py`](../../lib/env_config.py) to **automatically detect hardware** and convert the model to the fastest format for your platform. Conversion happens once during deployment and is cached.
+
+| Platform | Backend | Optimized Format | Expected Speedup |
+|----------|---------|------------------|:----------------:|
+| NVIDIA GPU | CUDA | TensorRT `.engine` | ~3-5x |
+| Apple Silicon (M1+) | MPS | CoreML `.mlpackage` | ~2x |
+| Intel CPU/GPU/NPU | OpenVINO | OpenVINO IR `.xml` | ~2-3x |
+| AMD GPU | ROCm | ONNX Runtime | ~1.5-2x |
+| CPU (any) | CPU | ONNX Runtime | ~1.5x |
+
+### How It Works
+
+1. `deploy.sh` detects your hardware via `env_config.HardwareEnv.detect()`
+2. Installs the matching `requirements_{backend}.txt` (e.g. CUDA → includes `tensorrt`)
+3. Pre-converts the default model to the optimal format
+4. At runtime, `detect.py` loads the cached optimized model automatically
+5. Falls back to PyTorch if optimization fails
+
+Set `use_optimized: false` to disable auto-conversion and use raw PyTorch.
+
+## Auto Start
+
+Set `auto_start: true` in the skill config to start detection automatically when Aegis launches. The skill will begin processing frames from the selected camera immediately.
+
+```yaml
+auto_start: true
+model_size: nano
+fps: 5
+```
+
+## Performance Monitoring
+
+The skill emits `perf_stats` events every 50 frames with aggregate timing:
+
+```jsonl
+{"event": "perf_stats", "total_frames": 50, "timings_ms": {
+  "inference": {"avg": 3.4, "p50": 3.2, "p95": 5.1},
+  "postprocess": {"avg": 0.15, "p50": 0.12, "p95": 0.31},
+  "total": {"avg": 3.6, "p50": 3.4, "p95": 5.5}
+}}
+```
+
 ## Protocol
 
 Communicates via **JSON lines** over stdin/stdout.
@@ -75,10 +134,11 @@ Communicates via **JSON lines** over stdin/stdout.
 
 ### Skill → Aegis (stdout)
 ```jsonl
-{"event": "ready", "model": "yolo2026n", "device": "mps", "classes": 80, "fps": 5}
+{"event": "ready", "model": "yolo2026n", "device": "mps", "backend": "mps", "format": "coreml", "gpu": "Apple M3", "classes": 80, "fps": 5}
 {"event": "detections", "frame_id": 42, "camera_id": "front_door", "timestamp": "...", "objects": [
   {"class": "person", "confidence": 0.92, "bbox": [100, 50, 300, 400]}
 ]}
+{"event": "perf_stats", "total_frames": 50, "timings_ms": {"inference": {"avg": 3.4}}}
 {"event": "error", "message": "...", "retriable": true}
 ```
 
@@ -90,20 +150,20 @@ Communicates via **JSON lines** over stdin/stdout.
 {"command": "stop"}
 ```
 
-## Hardware Support
-
-| Platform | Backend | Performance |
-|----------|---------|-------------|
-| Apple Silicon (M1+) | MPS | 20-30 FPS |
-| NVIDIA GPU | CUDA | 25-60 FPS |
-| AMD GPU | ROCm | 15-40 FPS |
-| CPU (modern x86) | CPU | 5-15 FPS |
-| Raspberry Pi 5 | CPU | 2-5 FPS |
-
 ## Installation
 
-The `deploy.sh` bootstrapper handles everything — Python environment, GPU backend detection, and dependency installation. No manual setup required.
+The `deploy.sh` bootstrapper handles everything — Python environment, GPU backend detection, dependency installation, and model optimization. No manual setup required.
 
 ```bash
 ./deploy.sh
 ```
+
+### Requirements Files
+
+| File | Backend | Key Deps |
+|------|---------|----------|
+| `requirements_cuda.txt` | NVIDIA | `torch` (cu124), `tensorrt` |
+| `requirements_mps.txt` | Apple | `torch`, `coremltools` |
+| `requirements_intel.txt` | Intel | `torch`, `openvino` |
+| `requirements_rocm.txt` | AMD | `torch` (rocm6.2), `onnxruntime-rocm` |
+| `requirements_cpu.txt` | CPU | `torch` (cpu), `onnxruntime` |

@@ -24,13 +24,22 @@
 
 ---
 
+## 🗺️ Roadmap
+
+- [x] **Skill architecture** — pluggable `SKILL.md` interface for all capabilities
+- [x] **Skill Store UI** — browse, install, and configure skills from Aegis
+- [x] **AI/LLM-assisted skill installation** — community-contributed skills installed and configured via AI agent
+- [x] **GPU / NPU / CPU (AIPC) aware installation** — auto-detect hardware, install matching frameworks, convert models to optimal format
+- [x] **Hardware environment layer** — shared [`env_config.py`](skills/lib/env_config.py) for auto-detection + model optimization across NVIDIA, AMD, Apple Silicon, Intel, and CPU
+- [ ] **Skill development** — 18 skills across 9 categories, actively expanding with community contributions
+
 ## 🧩 Skill Catalog
 
 Each skill is a self-contained module with its own model, parameters, and [communication protocol](docs/skill-development.md). See the [Skill Development Guide](docs/skill-development.md) and [Platform Parameters](docs/skill-params.md) to build your own.
 
 | Category | Skill | What It Does | Status |
 |----------|-------|--------------|:------:|
-| **Detection** | [`yolo-detection-2026`](skills/detection/yolo-detection-2026/) | Real-time 80+ class object detection | ✅|
+| **Detection** | [`yolo-detection-2026`](skills/detection/yolo-detection-2026/) | Real-time 80+ class detection — auto-accelerated via TensorRT / CoreML / OpenVINO / ONNX | ✅|
 | | [`dinov3-grounding`](skills/detection/dinov3-grounding/) | Open-vocabulary detection — describe what to find | 📐 |
 | | [`person-recognition`](skills/detection/person-recognition/) | Re-identify individuals across cameras | 📐 |
 | **Analysis** | [`home-security-benchmark`](skills/analysis/home-security-benchmark/) | [131-test evaluation suite](#-homesec-bench--how-secure-is-your-local-ai) for LLM & VLM security performance | ✅ |
@@ -48,13 +57,6 @@ Each skill is a self-contained module with its own model, parameters, and [commu
 
 > **Registry:** All skills are indexed in [`skills.json`](skills.json) for programmatic discovery.
 
-### 🗺️ Roadmap
-
-- [x] **Skill architecture** — pluggable `SKILL.md` interface for all capabilities
-- [x] **Full skill catalog** — 18 skills across 9 categories with working scripts
-- [ ] **Skill Store UI** — browse, install, and configure skills from Aegis
-- [ ] **Custom skill packaging** — community-contributed skills via GitHub
-- [ ] **GPU-optimized containers** — one-click Docker deployment per skill
 
 ## 🚀 Getting Started with [SharpAI Aegis](https://www.sharpai.org)
 
@@ -88,6 +90,53 @@ The easiest way to run DeepCamera's AI skills. Aegis connects everything — cam
 </tr>
 </table>
 
+
+## 🎯 YOLO 2026 — Real-Time Object Detection
+
+State-of-the-art detection running locally on **any hardware**, fully integrated as a [DeepCamera skill](skills/detection/yolo-detection-2026/).
+
+### YOLO26 Models
+
+YOLO26 (Jan 2026) eliminates NMS and DFL for cleaner exports and lower latency. Pick the size that fits your hardware:
+
+| Model | Params | Latency (optimized) | Use Case |
+|-------|--------|:-------------------:|----------|
+| **yolo26n** (nano) | 2.6M | ~2ms | Edge devices, real-time on CPU |
+| **yolo26s** (small) | 11.2M | ~5ms | Balanced speed & accuracy |
+| **yolo26m** (medium) | 25.4M | ~12ms | Accuracy-focused |
+| **yolo26l** (large) | 52.3M | ~25ms | Maximum detection quality |
+
+All models detect **80+ COCO classes**: people, vehicles, animals, everyday objects.
+
+### Hardware Acceleration
+
+The shared [`env_config.py`](skills/lib/env_config.py) **auto-detects your GPU** and converts the model to the fastest native format — zero manual setup:
+
+| Your Hardware | Optimized Format | Runtime | Speedup vs PyTorch |
+|---------------|-----------------|---------|:------------------:|
+| **NVIDIA GPU** (RTX, Jetson) | TensorRT `.engine` | CUDA | **3-5x** |
+| **Apple Silicon** (M1–M4) | CoreML `.mlpackage` | ANE + GPU | **~2x** |
+| **Intel** (CPU, iGPU, NPU) | OpenVINO IR `.xml` | OpenVINO | **2-3x** |
+| **AMD GPU** (RX, MI) | ONNX Runtime | ROCm | **1.5-2x** |
+| **Any CPU** | ONNX Runtime | CPU | **~1.5x** |
+
+### Aegis Skill Integration
+
+Detection runs as a **parallel pipeline** alongside VLM analysis — never blocks your AI agent:
+
+```
+Camera → Frame Governor → detect.py (JSONL) → Aegis IPC → Live Overlay
+                5 FPS           ↓
+                          perf_stats (p50/p95/p99 latency)
+```
+
+- 🖱️ **Click to setup** — one button in Aegis installs everything, no terminal needed
+- 🤖 **AI-driven environment config** — autonomous agent detects your GPU, installs the right framework (CUDA/ROCm/CoreML/OpenVINO), converts models, and verifies the setup
+- 📺 **Live bounding boxes** — detection results rendered as overlays on RTSP camera streams
+- 📊 **Built-in performance profiling** — aggregate latency stats (p50/p95/p99) emitted every 50 frames
+- ⚡ **Auto start** — set `auto_start: true` to begin detecting when Aegis launches
+
+📖 [Full Skill Documentation →](skills/detection/yolo-detection-2026/SKILL.md)
 
 ## 📊 HomeSec-Bench — How Secure Is Your Local AI?
 

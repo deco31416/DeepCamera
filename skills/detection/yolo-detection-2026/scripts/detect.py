@@ -6,6 +6,9 @@ Communicates via JSON lines over stdin/stdout:
   stdin:  {"event": "frame", "frame_id": N, "camera_id": "...", "frame_path": "...", ...}
   stdout: {"event": "detections", "frame_id": N, "camera_id": "...", "objects": [...]}
 
+Uses env_config.py for automatic hardware detection and model optimization
+(TensorRT, ONNX, CoreML, OpenVINO) with PyTorch fallback.
+
 Usage:
   python detect.py --config config.json
   python detect.py --model-size nano --confidence 0.5 --device auto
@@ -15,7 +18,12 @@ import sys
 import json
 import argparse
 import signal
+import time
 from pathlib import Path
+
+# Add skills/lib to path for shared modules
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent / "lib"))
+from env_config import HardwareEnv  # noqa: E402
 
 
 # Model size → ultralytics model name mapping (YOLO26, released Jan 2026)
@@ -26,6 +34,84 @@ MODEL_SIZE_MAP = {
     "large": "yolo26l",
 }
 
+# How often to emit aggregate perf stats (every N frames)
+PERF_STATS_INTERVAL = 50
+
+
+# ───────────────────────────────────────────────────────────────────────────────
+# Performance tracker — collects per-frame timings, emits aggregate stats
+# ───────────────────────────────────────────────────────────────────────────────
+
+class PerfTracker:
+    """Tracks timing for each pipeline stage and emits periodic statistics."""
+
+    def __init__(self, interval: int = PERF_STATS_INTERVAL):
+        self.interval = interval
+        self.frame_count = 0
+        self.total_frames = 0
+        self.error_count = 0
+
+        # One-time timings (ms)
+        self.model_load_ms = 0.0
+        self.export_ms = 0.0
+
+        # Per-frame accumulators (ms)
+        self._timings: dict[str, list[float]] = {
+            "file_read":    [],
+            "inference":    [],
+            "postprocess":  [],
+            "emit":         [],
+            "total":        [],
+        }
+
+    def record(self, stage: str, duration_ms: float):
+        if stage in self._timings:
+            self._timings[stage].append(duration_ms)
+
+    def record_frame(self):
+        self.frame_count += 1
+        self.total_frames += 1
+        if self.frame_count >= self.interval:
+            self.emit_stats()
+            self.frame_count = 0
+
+    def emit_stats(self):
+        stats = {
+            "event": "perf_stats",
+            "total_frames": self.total_frames,
+            "window_size": len(self._timings["total"]) or 1,
+            "errors": self.error_count,
+            "model_load_ms": round(self.model_load_ms, 1),
+            "timings_ms": {},
+        }
+        if self.export_ms > 0:
+            stats["export_ms"] = round(self.export_ms, 1)
+
+        for stage, values in self._timings.items():
+            if not values:
+                continue
+            sorted_v = sorted(values)
+            n = len(sorted_v)
+            stats["timings_ms"][stage] = {
+                "avg": round(sum(sorted_v) / n, 2),
+                "min": round(sorted_v[0], 2),
+                "max": round(sorted_v[-1], 2),
+                "p50": round(sorted_v[n // 2], 2),
+                "p95": round(sorted_v[int(n * 0.95)], 2),
+                "p99": round(sorted_v[int(n * 0.99)], 2),
+            }
+        emit(stats)
+        for key in self._timings:
+            self._timings[key].clear()
+
+    def emit_final(self):
+        if self._timings["total"]:
+            self.emit_stats()
+
+
+# ───────────────────────────────────────────────────────────────────────────────
+# Helpers
+# ───────────────────────────────────────────────────────────────────────────────
 
 def parse_args():
     parser = argparse.ArgumentParser(description="YOLO 2026 Detection Skill")
@@ -44,7 +130,6 @@ def load_config(args):
     """Load config from JSON file, CLI args, or AEGIS_SKILL_PARAMS env var."""
     import os
 
-    # Priority 1: AEGIS_SKILL_PARAMS env var (set by Aegis skill-runtime-manager)
     env_params = os.environ.get("AEGIS_SKILL_PARAMS")
     if env_params:
         try:
@@ -52,14 +137,12 @@ def load_config(args):
         except json.JSONDecodeError:
             pass
 
-    # Priority 2: Config file
     if args.config:
         config_path = Path(args.config)
         if config_path.exists():
             with open(config_path) as f:
                 return json.load(f)
 
-    # Priority 3: CLI args
     return {
         "model_size": args.model_size,
         "confidence": args.confidence,
@@ -69,56 +152,55 @@ def load_config(args):
     }
 
 
-def select_device(preference: str) -> str:
-    """Select the best available inference device."""
-    if preference not in ("auto", ""):
-        return preference
-    try:
-        import torch
-        if torch.cuda.is_available():
-            return "cuda"
-        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-            return "mps"
-        # ROCm exposes as CUDA in PyTorch with ROCm builds
-    except ImportError:
-        pass
-    return "cpu"
-
-
 def emit(event: dict):
-    """Write a JSON line to stdout."""
     print(json.dumps(event), flush=True)
 
+
+def log(msg: str):
+    print(f"[YOLO-2026] {msg}", file=sys.stderr, flush=True)
+
+
+# ───────────────────────────────────────────────────────────────────────────────
+# Main loop
+# ───────────────────────────────────────────────────────────────────────────────
 
 def main():
     args = parse_args()
     config = load_config(args)
 
-    # Resolve config values
     model_size = config.get("model_size", "nano")
-    device = select_device(config.get("device", "auto"))
     confidence = config.get("confidence", 0.5)
     fps = config.get("fps", 5)
+    use_optimized = config.get("use_optimized", config.get("use_coreml", True))
+    if isinstance(use_optimized, str):
+        use_optimized = use_optimized.lower() in ("true", "1", "yes")
 
-    # Map size to ultralytics model name
-    model_name = MODEL_SIZE_MAP.get(model_size, "yolo11n")
+    model_name = MODEL_SIZE_MAP.get(model_size, "yolo26n")
 
     target_classes = config.get("classes", ["person", "car", "dog", "cat"])
     if isinstance(target_classes, str):
         target_classes = [c.strip() for c in target_classes.split(",")]
 
-    # Load YOLO model
+    # ── Hardware detection & optimized model loading ──
+    env = HardwareEnv.detect()
+    perf = PerfTracker(interval=PERF_STATS_INTERVAL)
+
     try:
-        from ultralytics import YOLO
-        model = YOLO(f"{model_name}.pt")
-        model.to(device)
+        model, model_format = env.load_optimized(model_name, use_optimized=use_optimized)
+        perf.model_load_ms = env.load_ms
+        perf.export_ms = env.export_ms
+
         emit({
             "event": "ready",
             "model": f"yolo2026{model_size[0]}",
             "model_size": model_size,
-            "device": device,
+            "device": env.device,
+            "backend": env.backend,
+            "format": model_format,
+            "gpu": env.gpu_name,
             "classes": len(model.names),
             "fps": fps,
+            "model_load_ms": round(env.load_ms, 1),
             "available_sizes": list(MODEL_SIZE_MAP.keys()),
         })
     except Exception as e:
@@ -151,11 +233,14 @@ def main():
             break
 
         if msg.get("event") == "frame":
+            t_frame_start = time.perf_counter()
+
             frame_path = msg.get("frame_path")
             frame_id = msg.get("frame_id")
             camera_id = msg.get("camera_id", "unknown")
             timestamp = msg.get("timestamp", "")
 
+            t0 = time.perf_counter()
             if not frame_path or not Path(frame_path).exists():
                 emit({
                     "event": "error",
@@ -163,11 +248,16 @@ def main():
                     "message": f"Frame not found: {frame_path}",
                     "retriable": True,
                 })
+                perf.error_count += 1
                 continue
+            perf.record("file_read", (time.perf_counter() - t0) * 1000)
 
-            # Run inference
             try:
+                t0 = time.perf_counter()
                 results = model(frame_path, conf=confidence, verbose=False)
+                perf.record("inference", (time.perf_counter() - t0) * 1000)
+
+                t0 = time.perf_counter()
                 objects = []
                 for r in results:
                     for box in r.boxes:
@@ -180,7 +270,9 @@ def main():
                                 "confidence": round(float(box.conf[0]), 3),
                                 "bbox": [int(x1), int(y1), int(x2), int(y2)],
                             })
+                perf.record("postprocess", (time.perf_counter() - t0) * 1000)
 
+                t0 = time.perf_counter()
                 emit({
                     "event": "detections",
                     "frame_id": frame_id,
@@ -188,6 +280,8 @@ def main():
                     "timestamp": timestamp,
                     "objects": objects,
                 })
+                perf.record("emit", (time.perf_counter() - t0) * 1000)
+
             except Exception as e:
                 emit({
                     "event": "error",
@@ -195,6 +289,13 @@ def main():
                     "message": f"Inference error: {e}",
                     "retriable": True,
                 })
+                perf.error_count += 1
+                continue
+
+            perf.record("total", (time.perf_counter() - t_frame_start) * 1000)
+            perf.record_frame()
+
+    perf.emit_final()
 
 
 if __name__ == "__main__":
