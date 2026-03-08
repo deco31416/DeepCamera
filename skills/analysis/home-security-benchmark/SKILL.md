@@ -6,6 +6,11 @@ category: analysis
 runtime: node
 entry: scripts/run-benchmark.cjs
 install: npm
+
+requirements:
+  node: ">=18"
+  npm_install: true
+  platforms: ["linux", "macos", "windows"]
 ---
 
 # Home Security AI Benchmark
