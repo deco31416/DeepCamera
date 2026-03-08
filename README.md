@@ -51,12 +51,11 @@ Each skill is a self-contained module with its own model, parameters, and [commu
 ### 🗺️ Roadmap
 
 - [x] **Skill architecture** — pluggable `SKILL.md` interface for all capabilities
-- [x] **Full skill catalog** — 18 skills across 9 categories with working scripts
-- [x] **Hardware environment layer** — shared [`env_config.py`](skills/lib/env_config.py) for auto-detection + model optimization across NVIDIA, AMD, Apple Silicon, Intel, and CPU
 - [x] **Skill Store UI** — browse, install, and configure skills from Aegis
-- [x] **GPU / NPU / CPU (AIPC) aware installation** — auto-detect hardware, install matching frameworks, convert models to optimal format
 - [x] **AI/LLM-assisted skill installation** — community-contributed skills installed and configured via AI agent
-- [ ] **Skill development guide** — documentation for building custom skills
+- [x] **GPU / NPU / CPU (AIPC) aware installation** — auto-detect hardware, install matching frameworks, convert models to optimal format
+- [x] **Hardware environment layer** — shared [`env_config.py`](skills/lib/env_config.py) for auto-detection + model optimization across NVIDIA, AMD, Apple Silicon, Intel, and CPU
+- [ ] **Skill development** — 18 skills across 9 categories, actively expanding with community contributions
 
 ## 🚀 Getting Started with [SharpAI Aegis](https://www.sharpai.org)
 
