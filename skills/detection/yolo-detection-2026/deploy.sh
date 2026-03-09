@@ -160,24 +160,27 @@ fi
 log "Installing dependencies from $REQ_FILE ..."
 emit "{\"event\": \"progress\", \"stage\": \"install\", \"message\": \"Installing $BACKEND dependencies...\"}"
 
-# ROCm: remove CPU-only onnxruntime if present (it shadows onnxruntime-rocm)
 if [ "$BACKEND" = "rocm" ]; then
-    if "$PIP" show onnxruntime &>/dev/null 2>&1; then
-        log "Removing CPU-only onnxruntime to avoid shadowing onnxruntime-rocm..."
-        "$PIP" uninstall -y onnxruntime -q 2>&1 || true
-    fi
-fi
+    # ROCm: two-phase install to get the correct packages
+    # Phase 1: PyTorch from ROCm index (--index-url forces ROCm build, not CUDA)
+    log "Installing PyTorch with ROCm support..."
+    "$PIP" install torch torchvision --index-url https://download.pytorch.org/whl/rocm6.2 -q 2>&1 | tail -3 >&2
 
-"$PIP" install -r "$REQ_FILE" -q 2>&1 | tail -5 >&2
+    # Phase 2: remaining packages (ultralytics, onnxruntime-rocm, etc.)
+    "$PIP" install ultralytics onnxruntime-rocm 'onnx>=1.12.0,<2.0.0' 'onnxslim>=0.1.71' \
+        'numpy>=1.24.0' 'opencv-python-headless>=4.8.0' 'Pillow>=10.0.0' -q 2>&1 | tail -3 >&2
+
+    # Prevent ultralytics from auto-installing CPU onnxruntime during export
+    export YOLO_AUTOINSTALL=0
+else
+    "$PIP" install -r "$REQ_FILE" -q 2>&1 | tail -5 >&2
+fi
 
 # ─── Step 5: Pre-convert model to optimized format ───────────────────────────
 
 if [ "$BACKEND" != "cpu" ] || [ -f "$SKILL_DIR/requirements_cpu.txt" ]; then
     log "Pre-converting model to optimized format for $BACKEND..."
     emit "{\"event\": \"progress\", \"stage\": \"optimize\", \"message\": \"Converting model for $BACKEND (~30-120s)...\"}"
-
-    # Disable ultralytics auto-install (it would re-install CPU onnxruntime)
-    export YOLO_AUTOINSTALL=0
 
     "$VENV_DIR/bin/python" -c "
 import sys
@@ -202,14 +205,6 @@ else:
     else
         log "WARNING: Model optimization failed, will use PyTorch at runtime"
         emit "{\"event\": \"progress\", \"stage\": \"optimize\", \"message\": \"Optimization failed — PyTorch fallback\"}"
-    fi
-fi
-
-# ROCm: final cleanup — remove CPU onnxruntime if ultralytics re-installed it
-if [ "$BACKEND" = "rocm" ]; then
-    if "$PIP" show onnxruntime 2>/dev/null | grep -q "^Name: onnxruntime$"; then
-        log "Post-export cleanup: removing CPU onnxruntime (re-installed by ultralytics)..."
-        "$PIP" uninstall -y onnxruntime -q 2>&1 || true
     fi
 fi
 
