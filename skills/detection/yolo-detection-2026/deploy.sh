@@ -176,6 +176,9 @@ if [ "$BACKEND" != "cpu" ] || [ -f "$SKILL_DIR/requirements_cpu.txt" ]; then
     log "Pre-converting model to optimized format for $BACKEND..."
     emit "{\"event\": \"progress\", \"stage\": \"optimize\", \"message\": \"Converting model for $BACKEND (~30-120s)...\"}"
 
+    # Disable ultralytics auto-install (it would re-install CPU onnxruntime)
+    export YOLO_AUTOINSTALL=0
+
     "$VENV_DIR/bin/python" -c "
 import sys
 sys.path.insert(0, '$ENV_CONFIG_DIR')
@@ -199,6 +202,14 @@ else:
     else
         log "WARNING: Model optimization failed, will use PyTorch at runtime"
         emit "{\"event\": \"progress\", \"stage\": \"optimize\", \"message\": \"Optimization failed — PyTorch fallback\"}"
+    fi
+fi
+
+# ROCm: final cleanup — remove CPU onnxruntime if ultralytics re-installed it
+if [ "$BACKEND" = "rocm" ]; then
+    if "$PIP" show onnxruntime 2>/dev/null | grep -q "^Name: onnxruntime$"; then
+        log "Post-export cleanup: removing CPU onnxruntime (re-installed by ultralytics)..."
+        "$PIP" uninstall -y onnxruntime -q 2>&1 || true
     fi
 fi
 
