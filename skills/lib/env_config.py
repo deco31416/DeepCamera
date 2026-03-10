@@ -133,31 +133,79 @@ class HardwareEnv:
         return env
 
     def _try_cuda(self) -> bool:
-        """Detect NVIDIA GPU via nvidia-smi and torch."""
-        if not shutil.which("nvidia-smi"):
-            return False
+        """Detect NVIDIA GPU via nvidia-smi (with Windows path search) and WMI fallback."""
+        nvidia_smi = shutil.which("nvidia-smi")
+
+        # Windows: check well-known paths if not on PATH
+        if not nvidia_smi and platform.system() == "Windows":
+            for candidate in [
+                Path(os.environ.get("PROGRAMFILES", r"C:\Program Files"))
+                / "NVIDIA Corporation" / "NVSMI" / "nvidia-smi.exe",
+                Path(os.environ.get("WINDIR", r"C:\Windows"))
+                / "System32" / "nvidia-smi.exe",
+            ]:
+                if candidate.is_file():
+                    nvidia_smi = str(candidate)
+                    _log(f"Found nvidia-smi at {nvidia_smi}")
+                    break
+
+        if nvidia_smi:
+            try:
+                result = subprocess.run(
+                    [nvidia_smi, "--query-gpu=name,memory.total,driver_version",
+                     "--format=csv,noheader,nounits"],
+                    capture_output=True, text=True, timeout=10,
+                )
+                if result.returncode == 0:
+                    line = result.stdout.strip().split("\n")[0]
+                    parts = [p.strip() for p in line.split(",")]
+                    if len(parts) >= 3:
+                        self.backend = "cuda"
+                        self.device = "cuda"
+                        self.gpu_name = parts[0]
+                        self.gpu_memory_mb = int(float(parts[1]))
+                        self.driver_version = parts[2]
+                        self.detection_details["nvidia_smi"] = line
+                        _log(f"NVIDIA GPU: {self.gpu_name} ({self.gpu_memory_mb}MB, driver {self.driver_version})")
+                        return True
+            except (subprocess.TimeoutExpired, FileNotFoundError, ValueError) as e:
+                _log(f"nvidia-smi probe failed: {e}")
+
+        # Windows WMI fallback: detect NVIDIA GPU even without nvidia-smi on PATH
+        if platform.system() == "Windows":
+            return self._try_cuda_wmi()
+
+        return False
+
+    def _try_cuda_wmi(self) -> bool:
+        """Windows-only: detect NVIDIA GPU via WMI (wmic)."""
         try:
             result = subprocess.run(
-                ["nvidia-smi", "--query-gpu=name,memory.total,driver_version",
-                 "--format=csv,noheader,nounits"],
+                ["wmic", "path", "win32_VideoController", "get",
+                 "Name,AdapterRAM,DriverVersion", "/format:csv"],
                 capture_output=True, text=True, timeout=10,
             )
             if result.returncode != 0:
                 return False
 
-            line = result.stdout.strip().split("\n")[0]
-            parts = [p.strip() for p in line.split(",")]
-            if len(parts) >= 3:
-                self.backend = "cuda"
-                self.device = "cuda"
-                self.gpu_name = parts[0]
-                self.gpu_memory_mb = int(float(parts[1]))
-                self.driver_version = parts[2]
-                self.detection_details["nvidia_smi"] = line
-                _log(f"NVIDIA GPU: {self.gpu_name} ({self.gpu_memory_mb}MB, driver {self.driver_version})")
-                return True
+            for line in result.stdout.strip().split("\n"):
+                if "NVIDIA" in line.upper():
+                    parts = [p.strip() for p in line.split(",")]
+                    # CSV format: Node,AdapterRAM,DriverVersion,Name
+                    if len(parts) >= 4:
+                        self.backend = "cuda"
+                        self.device = "cuda"
+                        self.gpu_name = parts[3]
+                        try:
+                            self.gpu_memory_mb = int(int(parts[1]) / (1024 * 1024))
+                        except (ValueError, IndexError):
+                            pass
+                        self.driver_version = parts[2] if len(parts) > 2 else ""
+                        self.detection_details["wmi"] = line
+                        _log(f"NVIDIA GPU (WMI): {self.gpu_name} ({self.gpu_memory_mb}MB)")
+                        return True
         except (subprocess.TimeoutExpired, FileNotFoundError, ValueError) as e:
-            _log(f"nvidia-smi probe failed: {e}")
+            _log(f"WMI probe failed: {e}")
         return False
 
     def _try_rocm(self) -> bool:
