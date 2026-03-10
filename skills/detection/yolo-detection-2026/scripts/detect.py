@@ -248,7 +248,7 @@ def main():
         perf.model_load_ms = env.load_ms
         perf.export_ms = env.export_ms
 
-        emit({
+        ready_event = {
             "event": "ready",
             "model": f"yolo2026{model_size[0]}",
             "model_size": model_size,
@@ -260,7 +260,10 @@ def main():
             "fps": fps,
             "model_load_ms": round(env.load_ms, 1),
             "available_sizes": list(MODEL_SIZE_MAP.keys()),
-        })
+        }
+        if hasattr(env, 'compute_units') and env.backend == "mps":
+            ready_event["compute_units"] = env.compute_units
+        emit(ready_event)
     except Exception as e:
         emit({"event": "error", "message": f"Failed to load model: {e}", "retriable": False})
         sys.exit(1)

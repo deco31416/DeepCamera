@@ -66,6 +66,15 @@ parameters:
     description: "Auto-convert model to optimized format for faster inference"
     group: Performance
 
+  - name: compute_units
+    label: "Apple Compute Units"
+    type: select
+    options: ["auto", "cpu_and_ne", "all", "cpu_only", "cpu_and_gpu"]
+    default: "auto"
+    description: "CoreML compute target — 'auto' routes to Neural Engine (NPU), leaving GPU free for LLM/VLM"
+    group: Performance
+    platform: macos
+
 capabilities:
   live_detection:
     script: scripts/detect.py
@@ -89,13 +98,15 @@ Real-time object detection using the latest YOLO 2026 models. Detects 80+ COCO o
 
 The skill uses [`env_config.py`](../../lib/env_config.py) to **automatically detect hardware** and convert the model to the fastest format for your platform. Conversion happens once during deployment and is cached.
 
-| Platform | Backend | Optimized Format | Expected Speedup |
-|----------|---------|------------------|:----------------:|
-| NVIDIA GPU | CUDA | TensorRT `.engine` | ~3-5x |
-| Apple Silicon (M1+) | MPS | CoreML `.mlpackage` | ~2x |
-| Intel CPU/GPU/NPU | OpenVINO | OpenVINO IR `.xml` | ~2-3x |
-| AMD GPU | ROCm | ONNX Runtime | ~1.5-2x |
-| CPU (any) | CPU | ONNX Runtime | ~1.5x |
+| Platform | Backend | Optimized Format | Compute Units | Expected Speedup |
+|----------|---------|------------------|:-------------:|:----------------:|
+| NVIDIA GPU | CUDA | TensorRT `.engine` | GPU | ~3-5x |
+| Apple Silicon (M1+) | MPS | CoreML `.mlpackage` | **Neural Engine** (NPU) | ~2x |
+| Intel CPU/GPU/NPU | OpenVINO | OpenVINO IR `.xml` | CPU/GPU/NPU | ~2-3x |
+| AMD GPU | ROCm | ONNX Runtime | GPU | ~1.5-2x |
+| CPU (any) | CPU | ONNX Runtime | CPU | ~1.5x |
+
+> **Apple Silicon Note**: Detection defaults to `cpu_and_ne` (CPU + Neural Engine), keeping the GPU free for LLM/VLM inference. Set `compute_units: all` to include GPU if not running local LLM.
 
 ### How It Works
 

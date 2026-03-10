@@ -40,6 +40,7 @@ class BackendSpec:
     model_suffix: str       # file extension/dir to look for cached model
     half: bool = True       # use FP16
     extra_export_args: dict = field(default_factory=dict)
+    compute_units: Optional[str] = None  # CoreML compute units: "cpu_and_ne", "all", etc.
 
 
 BACKEND_SPECS = {
@@ -61,6 +62,7 @@ BACKEND_SPECS = {
         model_suffix=".mlpackage",
         half=True,
         extra_export_args={"nms": False},
+        compute_units="cpu_and_ne",  # Route to Neural Engine, leave GPU free for LLM/VLM
     ),
     "intel": BackendSpec(
         name="intel",
@@ -86,6 +88,7 @@ class HardwareEnv:
     backend: str = "cpu"              # "cuda" | "rocm" | "mps" | "intel" | "cpu"
     device: str = "cpu"               # torch device string
     export_format: str = "onnx"       # optimal export format
+    compute_units: str = "all"        # CoreML compute units (Apple only)
     gpu_name: str = ""                # human-readable GPU name
     gpu_memory_mb: int = 0            # GPU memory in MB
     driver_version: str = ""          # GPU driver version
@@ -113,9 +116,11 @@ class HardwareEnv:
         else:
             env._fallback_cpu()
 
-        # Set export format from backend spec
+        # Set export format and compute units from backend spec
         spec = BACKEND_SPECS.get(env.backend, BACKEND_SPECS["cpu"])
         env.export_format = spec.export_format
+        if spec.compute_units:
+            env.compute_units = spec.compute_units
 
         # Check if optimized runtime is available
         env.framework_ok = env._check_framework()
@@ -439,6 +444,58 @@ class HardwareEnv:
 
         return None
 
+    def _load_coreml_with_compute_units(self, model_path: str):
+        """
+        Load a CoreML model via YOLO with specific compute_units.
+
+        Monkey-patches coremltools.MLModel to inject compute_units
+        (e.g. CPU_AND_NE for Neural Engine) since ultralytics doesn't
+        expose this parameter. Patch is scoped and immediately restored.
+        """
+        from ultralytics import YOLO
+
+        # Map string config → coremltools enum
+        _COMPUTE_UNIT_MAP = {
+            "all": "ALL",
+            "cpu_only": "CPU_ONLY",
+            "cpu_and_gpu": "CPU_AND_GPU",
+            "cpu_and_ne": "CPU_AND_NE",
+        }
+
+        ct_enum_name = _COMPUTE_UNIT_MAP.get(self.compute_units)
+        if not ct_enum_name:
+            _log(f"Unknown compute_units '{self.compute_units}', using default")
+            return YOLO(model_path)
+
+        try:
+            import coremltools as ct
+            target_units = getattr(ct.ComputeUnit, ct_enum_name, None)
+            if target_units is None:
+                _log(f"coremltools.ComputeUnit.{ct_enum_name} not available")
+                return YOLO(model_path)
+
+            # Temporarily patch MLModel to inject compute_units
+            _OrigMLModel = ct.models.MLModel
+
+            class _PatchedMLModel(_OrigMLModel):
+                def __init__(self, *args, **kwargs):
+                    kwargs.setdefault('compute_units', target_units)
+                    super().__init__(*args, **kwargs)
+
+            ct.models.MLModel = _PatchedMLModel
+            try:
+                model = YOLO(model_path)
+            finally:
+                ct.models.MLModel = _OrigMLModel  # Always restore
+
+            _log(f"CoreML model loaded with compute_units={ct_enum_name} "
+                 f"(Neural Engine preferred)")
+            return model
+
+        except ImportError:
+            _log("coremltools not available, loading without compute_units")
+            return YOLO(model_path)
+
     def load_optimized(self, model_name: str, use_optimized: bool = True):
         """
         Load the best available model for this hardware.
@@ -455,7 +512,12 @@ class HardwareEnv:
             optimized_path = self.get_optimized_path(model_name)
             if optimized_path.exists():
                 try:
-                    model = YOLO(str(optimized_path))
+                    # On Apple Silicon: route CoreML to Neural Engine
+                    if self.backend == "mps" and self.compute_units != "all":
+                        model = self._load_coreml_with_compute_units(
+                            str(optimized_path))
+                    else:
+                        model = YOLO(str(optimized_path))
                     self.load_ms = (time.perf_counter() - t0) * 1000
                     _log(f"Loaded {self.export_format} model ({self.load_ms:.0f}ms)")
                     return model, self.export_format
@@ -467,7 +529,12 @@ class HardwareEnv:
             exported = self.export_model(pt_model, model_name)
             if exported:
                 try:
-                    model = YOLO(str(exported))
+                    # On Apple Silicon: route CoreML to Neural Engine
+                    if self.backend == "mps" and self.compute_units != "all":
+                        model = self._load_coreml_with_compute_units(
+                            str(exported))
+                    else:
+                        model = YOLO(str(exported))
                     self.load_ms = (time.perf_counter() - t0) * 1000
                     _log(f"Loaded freshly exported {self.export_format} model ({self.load_ms:.0f}ms)")
                     return model, self.export_format
@@ -508,7 +575,7 @@ class HardwareEnv:
 
     def to_dict(self) -> dict:
         """Serialize environment info for JSON output."""
-        return {
+        d = {
             "backend": self.backend,
             "device": self.device,
             "export_format": self.export_format,
@@ -519,6 +586,9 @@ class HardwareEnv:
             "export_ms": round(self.export_ms, 1),
             "load_ms": round(self.load_ms, 1),
         }
+        if self.backend == "mps":
+            d["compute_units"] = self.compute_units
+        return d
 
 
 # ─── CLI: run standalone for diagnostics ─────────────────────────────────────
