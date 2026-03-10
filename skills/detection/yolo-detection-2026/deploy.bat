@@ -120,9 +120,13 @@ if exist "%SKILL_DIR%\scripts\env_config.py" (
 if defined ENV_CONFIG_DIR (
     echo %LOG_PREFIX% Detecting hardware via env_config.py...>&2
 
-    REM Run env_config detection via Python
-    for /f "tokens=*" %%B in ('"%VPYTHON%" -c "import sys; sys.path.insert(0, r'!ENV_CONFIG_DIR!'); from env_config import HardwareEnv; env = HardwareEnv.detect(); print(env.backend)" 2^>nul') do (
-        set "DETECTED_BACKEND=%%B"
+    REM Run env_config detection via Python (temp file avoids for /f quoting issues)
+    set "ENV_CONFIG_DIR=!ENV_CONFIG_DIR!"
+    set "_TMPBACK=%TEMP%\_aegis_detect_backend.txt"
+    "%VPYTHON%" -c "import sys,os; sys.path.insert(0, os.environ['ENV_CONFIG_DIR']); from env_config import HardwareEnv; env = HardwareEnv.detect(); print(env.backend)" > "!_TMPBACK!" 2>nul
+    if exist "!_TMPBACK!" (
+        set /p DETECTED_BACKEND=<"!_TMPBACK!"
+        del "!_TMPBACK!" 2>nul
     )
 
     REM Validate backend value (Windows: only cuda, intel, cpu are realistic)
@@ -187,7 +191,7 @@ if "!BACKEND!" neq "cpu" (
     echo %LOG_PREFIX% Pre-converting model to optimized format for !BACKEND!...>&2
     echo {"event": "progress", "stage": "optimize", "message": "Converting model for !BACKEND! (~30-120s)..."}
 
-    "%VPYTHON%" -c "import sys; sys.path.insert(0, r'!ENV_CONFIG_DIR!'); from env_config import HardwareEnv; env = HardwareEnv.detect(); from ultralytics import YOLO; model = YOLO('yolo26n.pt'); result = env.export_model(model, 'yolo26n'); print(f'Optimized model exported: {result}' if result else 'Export skipped or failed')" 2>&1
+    "%VPYTHON%" -c "import sys,os; sys.path.insert(0, os.environ['ENV_CONFIG_DIR']); from env_config import HardwareEnv; env = HardwareEnv.detect(); from ultralytics import YOLO; model = YOLO('yolo26n.pt'); result = env.export_model(model, 'yolo26n'); print(f'Optimized model exported: {result}' if result else 'Export skipped or failed')" 2>&1
 
     if !errorlevel! equ 0 (
         echo {"event": "progress", "stage": "optimize", "message": "Model optimization complete"}
@@ -199,7 +203,7 @@ if "!BACKEND!" neq "cpu" (
     echo %LOG_PREFIX% Pre-converting model to ONNX for CPU...>&2
     echo {"event": "progress", "stage": "optimize", "message": "Converting model for cpu (~30-120s)..."}
 
-    "%VPYTHON%" -c "import sys; sys.path.insert(0, r'!ENV_CONFIG_DIR!'); from env_config import HardwareEnv; env = HardwareEnv.detect(); from ultralytics import YOLO; model = YOLO('yolo26n.pt'); result = env.export_model(model, 'yolo26n'); print(f'Optimized model exported: {result}' if result else 'Export skipped or failed')" 2>&1
+    "%VPYTHON%" -c "import sys,os; sys.path.insert(0, os.environ['ENV_CONFIG_DIR']); from env_config import HardwareEnv; env = HardwareEnv.detect(); from ultralytics import YOLO; model = YOLO('yolo26n.pt'); result = env.export_model(model, 'yolo26n'); print(f'Optimized model exported: {result}' if result else 'Export skipped or failed')" 2>&1
 
     if !errorlevel! equ 0 (
         echo {"event": "progress", "stage": "optimize", "message": "Model optimization complete"}
@@ -212,7 +216,7 @@ if "!BACKEND!" neq "cpu" (
 REM ─── Step 6: Verify installation ───────────────────────────────────────────
 
 echo %LOG_PREFIX% Verifying installation...>&2
-"%VPYTHON%" -c "import sys, json; sys.path.insert(0, r'!ENV_CONFIG_DIR!'); from env_config import HardwareEnv; env = HardwareEnv.detect(); print(json.dumps(env.to_dict(), indent=2))" 2>&1
+"%VPYTHON%" -c "import sys,os,json; sys.path.insert(0, os.environ['ENV_CONFIG_DIR']); from env_config import HardwareEnv; env = HardwareEnv.detect(); print(json.dumps(env.to_dict(), indent=2))" 2>&1
 
 echo {"event": "complete", "backend": "!BACKEND!", "message": "YOLO 2026 skill installed (!BACKEND! backend)"}
 echo %LOG_PREFIX% Done! Backend: !BACKEND!>&2

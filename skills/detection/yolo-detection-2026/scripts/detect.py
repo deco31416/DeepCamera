@@ -240,13 +240,21 @@ def main():
         target_classes = [c.strip() for c in target_classes.split(",")]
 
     # ── Hardware detection & optimized model loading ──
+    emit({"event": "progress", "stage": "init", "message": "Detecting compute hardware..."})
     env = HardwareEnv.detect()
     perf = PerfTracker(interval=PERF_STATS_INTERVAL)
 
+    gpu_msg = f"{env.gpu_name} ({env.backend})" if env.gpu_name else env.backend
+    emit({"event": "progress", "stage": "init", "message": f"Hardware: {gpu_msg}"})
+
     try:
+        emit({"event": "progress", "stage": "model", "message": f"Loading {model_name} model ({env.export_format} format)..."})
         model, model_format = env.load_optimized(model_name, use_optimized=use_optimized)
         perf.model_load_ms = env.load_ms
         perf.export_ms = env.export_ms
+
+        if env.export_ms > 0:
+            emit({"event": "progress", "stage": "model", "message": f"Model optimized in {env.export_ms:.0f}ms"})
 
         ready_event = {
             "event": "ready",
@@ -268,18 +276,19 @@ def main():
         emit({"event": "error", "message": f"Failed to load model: {e}", "retriable": False})
         sys.exit(1)
 
-    # Graceful shutdown
-    running = True
+    # Graceful shutdown — exit immediately with code 0.
+    # The stdin read loop blocks, so setting a flag doesn't work;
+    # we must exit in the signal handler to avoid being killed (code null).
     def handle_signal(signum, frame):
-        nonlocal running
-        running = False
+        sig_name = "SIGTERM" if signum == signal.SIGTERM else "SIGINT"
+        log(f"Received {sig_name}, shutting down gracefully")
+        perf.emit_final()
+        sys.exit(0)
     signal.signal(signal.SIGTERM, handle_signal)
     signal.signal(signal.SIGINT, handle_signal)
 
     # Main loop: read frames from stdin, output detections to stdout
     for line in sys.stdin:
-        if not running:
-            break
 
         line = line.strip()
         if not line:
