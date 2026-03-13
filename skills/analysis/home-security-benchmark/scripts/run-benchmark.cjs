@@ -165,6 +165,15 @@ async function llmCall(messages, opts = {}) {
     }
 
     const model = opts.model || (opts.vlm ? VLM_MODEL : LLM_MODEL) || undefined;
+    // For JSON-expected tests, disable thinking (Qwen3 /no_think directive)
+    // This prevents the model from wasting tokens on reasoning before outputting JSON
+    if (opts.expectJSON) {
+        const lastUserIdx = messages.findLastIndex(m => m.role === 'user');
+        if (lastUserIdx >= 0) {
+            messages = [...messages];
+            messages[lastUserIdx] = { ...messages[lastUserIdx], content: messages[lastUserIdx].content + ' /no_think' };
+        }
+    }
 
     // Build request params
     const params = {
@@ -173,6 +182,7 @@ async function llmCall(messages, opts = {}) {
         ...(model && { model }),
         ...(opts.temperature !== undefined && { temperature: opts.temperature }),
         ...(opts.maxTokens && { max_completion_tokens: opts.maxTokens }),
+        ...(opts.expectJSON && { response_format: { type: 'json_object' } }),
         ...(opts.tools && { tools: opts.tools }),
     };
 
@@ -181,6 +191,34 @@ async function llmCall(messages, opts = {}) {
     const idleMs = opts.timeout || IDLE_TIMEOUT_MS;
     let idleTimer = setTimeout(() => controller.abort(), idleMs);
     const resetIdle = () => { clearTimeout(idleTimer); idleTimer = setTimeout(() => controller.abort(), idleMs); };
+    // Log prompt being sent
+    log(`\n    📤 Prompt (${messages.length} messages, params: ${JSON.stringify({maxTokens: opts.maxTokens, expectJSON: !!opts.expectJSON, response_format: params.response_format})}):`);
+    for (const m of messages) {
+        if (typeof m.content === 'string') {
+            log(`       [${m.role}] ${m.content}`);
+        } else if (Array.isArray(m.content)) {
+            // Multi-part content (VLM with images)
+            for (const part of m.content) {
+                if (part.type === 'text') {
+                    log(`       [${m.role}] ${part.text}`);
+                } else if (part.type === 'image_url') {
+                    const url = part.image_url?.url || '';
+                    const b64Match = url.match(/^data:([^;]+);base64,(.+)/);
+                    if (b64Match) {
+                        const mimeType = b64Match[1];
+                        const b64Data = b64Match[2];
+                        const sizeKB = Math.round(b64Data.length * 3 / 4 / 1024);
+                        log(`       [${m.role}] 🖼️  [Image: ${mimeType}, ~${sizeKB}KB]`);
+                        log(`[IMG:${url}]`);
+                    } else {
+                        log(`       [${m.role}] 🖼️  [Image URL: ${url.slice(0, 80)}…]`);
+                    }
+                }
+            }
+        } else {
+            log(`       [${m.role}] ${JSON.stringify(m.content).slice(0, 200)}`);
+        }
+    }
 
     try {
         const stream = await client.chat.completions.create(params, {
@@ -193,6 +231,7 @@ async function llmCall(messages, opts = {}) {
         let model = '';
         let usage = {};
         let tokenCount = 0;
+        let tokenBuffer = '';
 
         for await (const chunk of stream) {
             resetIdle();
@@ -204,8 +243,43 @@ async function llmCall(messages, opts = {}) {
             if (delta?.reasoning_content) reasoningContent += delta.reasoning_content;
             if (delta?.content || delta?.reasoning_content) {
                 tokenCount++;
+                // Buffer and log tokens — tag with field source
+                const isContent = !!delta?.content;
+                const tok = delta?.content || delta?.reasoning_content || '';
+                // Tag first token of each field type
+                if (tokenCount === 1) tokenBuffer += isContent ? '[C] ' : '[R] ';
+                tokenBuffer += tok;
+                if (tokenCount % 20 === 0) {
+                    log(tokenBuffer);
+                    tokenBuffer = '';
+                }
                 if (tokenCount % 100 === 0) {
-                    log(`    … ${tokenCount} tokens received`);
+                    log(`    … ${tokenCount} tokens (content: ${content.length}c, reasoning: ${reasoningContent.length}c)`);
+                }
+
+                // Smart early abort for JSON-expected tests:
+                // If the model is producing reasoning_content (thinking) for a JSON test,
+                // abort after 100 reasoning tokens — it should output JSON directly.
+                if (opts.expectJSON && !isContent && tokenCount > 100) {
+                    log(`    ⚠ Aborting: ${tokenCount} reasoning tokens for JSON test — model is thinking instead of outputting JSON`);
+                    controller.abort();
+                    break;
+                }
+                // If content is arriving, check it starts with JSON
+                if (opts.expectJSON && isContent && content.length >= 50) {
+                    const stripped = content.replace(/<think>[\s\S]*?<\/think>\s*/gi, '').trimStart();
+                    if (stripped.length >= 50 && !/^\s*[{\[]/.test(stripped)) {
+                        log(`    ⚠ Aborting: expected JSON but got: "${stripped.slice(0, 80)}…"`);
+                        controller.abort();
+                        break;
+                    }
+                }
+                // Hard cap: abort if token count far exceeds maxTokens (server may
+                // not count thinking tokens toward the limit)
+                if (opts.maxTokens && tokenCount > opts.maxTokens * 3) {
+                    log(`    ⚠ Aborting: ${tokenCount} tokens exceeds ${opts.maxTokens}×3 safety limit`);
+                    controller.abort();
+                    break;
                 }
             }
 
@@ -223,6 +297,9 @@ async function llmCall(messages, opts = {}) {
 
             if (chunk.usage) usage = chunk.usage;
         }
+
+        // Flush remaining token buffer
+        if (tokenBuffer) log(tokenBuffer);
 
         // If the model only produced reasoning_content (thinking) with no content,
         // use the reasoning output as the response content for evaluation purposes.
@@ -337,12 +414,11 @@ ${userMessage}
 4. Keep system messages (they contain tool results)
 
 ## Response Format
-Return ONLY this JSON (no other text):
-{"keep": [0, 5, 8], "summary": "brief 1-line summary of dropped exchanges"}
+Respond with ONLY a valid JSON object, no other text:
+{"keep": [<actual index numbers from the list above>], "summary": "<brief 1-line summary of what was dropped>"}
 
-- "keep": array of message indices to KEEP (from the index list above)
-- "summary": what the dropped messages were about (so context is not lost entirely)
-- If nothing should be dropped, set keep to ALL indices and summary to ""`;
+Example: if keeping messages at indices 0, 18, 22 → {"keep": [0, 18, 22], "summary": "Removed 4 duplicate 'what happened today' questions"}
+If nothing should be dropped, keep ALL indices and set summary to "".`;
 }
 
 suite('📋 Context Preprocessing', async () => {
@@ -356,7 +432,7 @@ suite('📋 Context Preprocessing', async () => {
             { idx: 18, ts: '12:56 PM', text: 'What has happened today' },
             { idx: 22, ts: '1:08 PM', text: 'What has happened today' },
         ];
-        const r = await llmCall([{ role: 'user', content: buildPreprocessPrompt(idx, 'What has happened today?') }]);
+        const r = await llmCall([{ role: 'user', content: buildPreprocessPrompt(idx, 'What has happened today?') }], { maxTokens: 300, expectJSON: true });
         const p = parseJSON(r.content);
         assert(Array.isArray(p.keep), 'keep must be array');
         assert(p.keep.length <= 3, `Expected ≤3, got ${p.keep.length}`);
@@ -373,7 +449,7 @@ suite('📋 Context Preprocessing', async () => {
             { idx: 18, ts: '12:00 PM', text: 'What is the system status?' },
             { idx: 22, ts: '1:00 PM', text: 'What has happened today' },
         ];
-        const r = await llmCall([{ role: 'user', content: buildPreprocessPrompt(idx, 'Any alerts triggered?') }]);
+        const r = await llmCall([{ role: 'user', content: buildPreprocessPrompt(idx, 'Any alerts triggered?') }], { maxTokens: 300, expectJSON: true });
         const p = parseJSON(r.content);
         assert(Array.isArray(p.keep), 'keep must be array');
         assert(p.keep.includes(3) || p.keep.includes(10) || p.keep.includes(18), 'Should keep unique topics');
@@ -387,7 +463,7 @@ suite('📋 Context Preprocessing', async () => {
             { idx: 6, ts: '10:00 AM', text: 'What is the system status?' },
             { idx: 10, ts: '11:00 AM', text: 'Analyze the clip from 9:40 AM' },
         ];
-        const r = await llmCall([{ role: 'user', content: buildPreprocessPrompt(idx, 'Any new motion events?') }]);
+        const r = await llmCall([{ role: 'user', content: buildPreprocessPrompt(idx, 'Any new motion events?') }], { maxTokens: 300, expectJSON: true });
         const p = parseJSON(r.content);
         assert(Array.isArray(p.keep) && p.keep.length === 4, `Expected 4, got ${p.keep?.length}`);
         return `kept all 4 ✓`;
@@ -398,7 +474,7 @@ suite('📋 Context Preprocessing', async () => {
             { idx: 0, ts: '9:00 AM', text: 'Hello' },
             { idx: 2, ts: '9:05 AM', text: 'Show cameras' },
         ];
-        const r = await llmCall([{ role: 'user', content: buildPreprocessPrompt(idx, 'Thanks') }]);
+        const r = await llmCall([{ role: 'user', content: buildPreprocessPrompt(idx, 'Thanks') }], { maxTokens: 300, expectJSON: true });
         const p = parseJSON(r.content);
         assert(Array.isArray(p.keep), 'keep must be array');
         return `kept ${p.keep.length}/2`;
@@ -427,7 +503,7 @@ suite('📋 Context Preprocessing', async () => {
             { idx: 36, ts: '12:30 PM', text: 'What happened today?' },
             { idx: 38, ts: '12:45 PM', text: 'Were there any packages delivered?' },
         ];
-        const r = await llmCall([{ role: 'user', content: buildPreprocessPrompt(idx, 'What happened today?') }]);
+        const r = await llmCall([{ role: 'user', content: buildPreprocessPrompt(idx, 'What happened today?') }], { maxTokens: 300, expectJSON: true });
         const p = parseJSON(r.content);
         assert(Array.isArray(p.keep), 'keep must be array');
         // 10 duplicates of "What happened today?" → should keep ≤12 of 20
@@ -444,7 +520,7 @@ suite('📋 Context Preprocessing', async () => {
             { idx: 3, ts: '9:05 AM', text: '[System] Alert triggered: person at front door' },
             { idx: 4, ts: '9:10 AM', text: 'What happened today?' },
         ];
-        const r = await llmCall([{ role: 'user', content: buildPreprocessPrompt(idx, 'Show me alerts') }]);
+        const r = await llmCall([{ role: 'user', content: buildPreprocessPrompt(idx, 'Show me alerts') }], { maxTokens: 300, expectJSON: true });
         const p = parseJSON(r.content);
         assert(Array.isArray(p.keep), 'keep must be array');
         // System messages (idx 1, 3) must be kept
@@ -538,7 +614,7 @@ suite('🧠 Knowledge Distillation', async () => {
         const r = await llmCall([
             { role: 'system', content: DISTILL_PROMPT },
             { role: 'user', content: `## Topic: Camera Setup\n## Existing KIs: (none)\n## Conversation\nUser: I have three cameras. Front door is a Blink Mini, living room is Blink Indoor, side parking is Blink Outdoor.\nAegis: Got it! Want to set up alerts?\nUser: Yes, person detection on front door after 10pm. My name is Sam.\nAegis: Alert set. Nice to meet you, Sam!` },
-        ]);
+        ], { maxTokens: 500, expectJSON: true });
         const p = parseJSON(r.content);
         assert(p && typeof p === 'object', 'Must return object');
         const facts = (p.items || []).reduce((n, i) => n + (i.facts?.length || 0), 0) + (p.new_items || []).reduce((n, i) => n + (i.facts?.length || 0), 0);
@@ -550,7 +626,7 @@ suite('🧠 Knowledge Distillation', async () => {
         const r = await llmCall([
             { role: 'system', content: DISTILL_PROMPT },
             { role: 'user', content: `## Topic: Greeting\n## Existing KIs: (none)\n## Conversation\nUser: Hi\nAegis: Hello! How can I help?\nUser: Thanks, bye\nAegis: Goodbye!` },
-        ]);
+        ], { maxTokens: 500, expectJSON: true });
         const p = parseJSON(r.content);
         const facts = (p.items || []).reduce((n, i) => n + (i.facts?.length || 0), 0) + (p.new_items || []).reduce((n, i) => n + (i.facts?.length || 0), 0);
         assert(facts === 0, `Expected 0 facts, got ${facts}`);
@@ -561,7 +637,7 @@ suite('🧠 Knowledge Distillation', async () => {
         const r = await llmCall([
             { role: 'system', content: DISTILL_PROMPT },
             { role: 'user', content: `## Topic: Alert Configuration\n## Existing KIs: alert_preferences\n## Conversation\nUser: No notifications from side parking 8am-5pm. Too many false alarms from passing cars.\nAegis: Quiet hours set for side parking 8 AM-5 PM.\nUser: Front door alerts go to Telegram. Discord for everything else.\nAegis: Done — front door to Telegram, rest to Discord.` },
-        ]);
+        ], { maxTokens: 500, expectJSON: true });
         const p = parseJSON(r.content);
         const facts = (p.items || []).reduce((n, i) => n + (i.facts?.length || 0), 0) + (p.new_items || []).reduce((n, i) => n + (i.facts?.length || 0), 0);
         assert(facts >= 2, `Expected ≥2 facts, got ${facts}`);
@@ -572,7 +648,7 @@ suite('🧠 Knowledge Distillation', async () => {
         const r = await llmCall([
             { role: 'system', content: DISTILL_PROMPT },
             { role: 'user', content: `## Topic: Camera Update\n## Existing KIs: home_profile (facts: ["3 cameras: Blink Mini front, Blink Indoor living, Blink Outdoor side", "Owner: Sam"])\n## Conversation\nUser: I just installed a fourth camera in the backyard. It's a Reolink Argus 3 Pro.\nAegis: Nice upgrade! I've noted your new backyard Reolink camera. That brings your total to 4 cameras.\nUser: Also, I got a dog named Max, golden retriever.\nAegis: Welcome, Max! I'll note that for the pet detections.` },
-        ]);
+        ], { maxTokens: 500, expectJSON: true });
         const p = parseJSON(r.content);
         const allFacts = [...(p.items || []).flatMap(i => i.facts || []), ...(p.new_items || []).flatMap(i => i.facts || [])];
         assert(allFacts.length >= 2, `Expected ≥2 facts, got ${allFacts.length}`);
@@ -587,7 +663,7 @@ suite('🧠 Knowledge Distillation', async () => {
         const r = await llmCall([
             { role: 'system', content: DISTILL_PROMPT },
             { role: 'user', content: `## Topic: Camera Change\n## Existing KIs: home_profile (facts: ["3 cameras: Blink Mini front, Blink Indoor living, Blink Outdoor side"])\n## Conversation\nUser: I replaced the living room camera. The Blink Indoor died. I put a Ring Indoor there now.\nAegis: Got it — living room camera is now a Ring Indoor. Updated.\nUser: Actually I also moved the side parking camera to the garage instead.\nAegis: Camera moved from side parking to garage, noted.` },
-        ]);
+        ], { maxTokens: 500, expectJSON: true });
         const p = parseJSON(r.content);
         const allFacts = [...(p.items || []).flatMap(i => i.facts || []), ...(p.new_items || []).flatMap(i => i.facts || [])];
         assert(allFacts.length >= 1, `Expected ≥1 fact, got ${allFacts.length}`);
@@ -634,7 +710,7 @@ suite('🔔 Event Deduplication', async () => {
             const r = await llmCall([
                 { role: 'system', content: 'You are a security event classifier. Respond only with valid JSON.' },
                 { role: 'user', content: buildDedupPrompt(s.current, s.recent, s.age_sec) },
-            ], { maxTokens: 150, temperature: 0.1 });
+            ], { maxTokens: 150, temperature: 0.1, expectJSON: true });
             const p = parseJSON(r.content);
             if (s.expected_duplicate !== undefined) {
                 assert(p.duplicate === s.expected_duplicate, `Expected duplicate=${s.expected_duplicate}, got ${p.duplicate}`);
@@ -847,7 +923,7 @@ suite('🛡️ Security Classification', async () => {
             const r = await llmCall([
                 { role: 'system', content: SECURITY_CLASSIFY_PROMPT },
                 { role: 'user', content: `Event description: ${s.description}` },
-            ], { maxTokens: 200, temperature: 0.1 });
+            ], { maxTokens: 200, temperature: 0.1, expectJSON: true });
             const p = parseJSON(r.content);
             assert(expectedClassifications.includes(p.classification),
                 `Expected "${expectedLabel}", got "${p.classification}"`);
