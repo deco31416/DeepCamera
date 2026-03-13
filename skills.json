@@ -101,8 +101,9 @@
       "id": "camera-claw",
       "name": "Camera Claw",
       "description": "Security camera for your AI agent — sandbox, record, and monitor OpenClaw activity.",
-      "version": "1.1.0",
+      "version": "2026.3.12",
       "category": "integrations",
+      "url": "https://github.com/SharpAI/CameraClaw",
       "repo_url": "https://github.com/SharpAI/CameraClaw",
       "code_structure": [
         { "path": "SKILL.md", "desc": "Aegis skill manifest (11 params)" },
@@ -114,7 +115,7 @@
         { "path": "scripts/health-check.js", "desc": "Container health checker" },
         { "path": "docs/aegis_openclaw_note.md", "desc": "Aegis integration requirements" }
       ],
-      "tags": ["security", "sandbox", "monitoring", "openclaw"],
+      "tags": ["security", "sandbox", "monitoring", "openclaw", "ai-agent"],
       "platforms": [
         "linux-x64",
         "linux-arm64",
