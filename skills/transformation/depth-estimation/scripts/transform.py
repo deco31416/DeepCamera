@@ -59,6 +59,8 @@ class DepthEstimationSkill(TransformSkillBase):
 
     def load_model(self, config: dict) -> dict:
         import torch
+        from depth_anything_v2.dpt import DepthAnythingV2
+        from huggingface_hub import hf_hub_download
 
         model_name = config.get("model", "depth-anything-v2-small")
         self.colormap_id = COLORMAP_MAP.get(config.get("colormap", "inferno"), 1)
@@ -67,13 +69,43 @@ class DepthEstimationSkill(TransformSkillBase):
 
         _log(f"Loading {model_name} on {self.device}", self._tag)
 
-        # Load model via torch hub
-        hub_name = model_name.replace("-", "_")
-        self.model = torch.hub.load(
-            "LiheYoung/Depth-Anything-V2",
-            hub_name,
-            trust_repo=True,
+        # Model configs: encoder name, features, HF repo, weight filename
+        MODEL_CONFIGS = {
+            "depth-anything-v2-small": {
+                "encoder": "vits", "features": 64,
+                "out_channels": [48, 96, 192, 384],
+                "repo": "depth-anything/Depth-Anything-V2-Small",
+                "filename": "depth_anything_v2_vits.pth",
+            },
+            "depth-anything-v2-base": {
+                "encoder": "vitb", "features": 128,
+                "out_channels": [96, 192, 384, 768],
+                "repo": "depth-anything/Depth-Anything-V2-Base",
+                "filename": "depth_anything_v2_vitb.pth",
+            },
+            "depth-anything-v2-large": {
+                "encoder": "vitl", "features": 256,
+                "out_channels": [256, 512, 1024, 1024],
+                "repo": "depth-anything/Depth-Anything-V2-Large",
+                "filename": "depth_anything_v2_vitl.pth",
+            },
+        }
+
+        cfg = MODEL_CONFIGS.get(model_name)
+        if not cfg:
+            raise ValueError(f"Unknown model: {model_name}. Choose from: {list(MODEL_CONFIGS.keys())}")
+
+        # Download weights from HuggingFace Hub (cached after first download)
+        _log(f"Downloading weights from HF: {cfg['repo']}", self._tag)
+        weights_path = hf_hub_download(cfg["repo"], cfg["filename"])
+
+        # Build model from pip package
+        self.model = DepthAnythingV2(
+            encoder=cfg["encoder"],
+            features=cfg["features"],
+            out_channels=cfg["out_channels"],
         )
+        self.model.load_state_dict(torch.load(weights_path, map_location=self.device, weights_only=True))
         self.model.to(self.device)
         self.model.eval()
 
