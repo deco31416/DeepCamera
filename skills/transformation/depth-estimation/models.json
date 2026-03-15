@@ -1,0 +1,116 @@
+{
+  "studio": {
+    "title": "3D Depth Vision Studio",
+    "subtitle": "Convert 2D video to 3D depth maps • Privacy-first scene understanding",
+    "icon": "layers"
+  },
+  "models_dir": "~/.aegis-ai/models/feature-extraction",
+  "models": {
+    "depth-anything-v2-small": {
+      "name": "Depth Anything V2 Small",
+      "type": "depth_estimation",
+      "input_size": [518, 392],
+      "description": "Monocular depth estimation — fast, lightweight model",
+      "platforms": {
+        "darwin": {
+          "repository": "apple/coreml-depth-anything-v2-small",
+          "format": "mlpackage",
+          "variants": {
+            "DepthAnythingV2SmallF16": {
+              "precision": "float16",
+              "size_mb": 49.8,
+              "description": "Float16 — Optimized for Neural Engine"
+            },
+            "DepthAnythingV2SmallF32": {
+              "precision": "float32",
+              "size_mb": 99.2,
+              "description": "Float32 — Highest precision"
+            }
+          }
+        },
+        "win32": {
+          "repository": "depth-anything/Depth-Anything-V2-Small",
+          "format": "pth",
+          "variants": {
+            "depth_anything_v2_vits": {
+              "precision": "float32",
+              "size_mb": 99,
+              "description": "PyTorch ViT-S — CUDA/CPU/MPS compatible"
+            }
+          }
+        },
+        "linux": {
+          "repository": "depth-anything/Depth-Anything-V2-Small",
+          "format": "pth",
+          "variants": {
+            "depth_anything_v2_vits": {
+              "precision": "float32",
+              "size_mb": 99,
+              "description": "PyTorch ViT-S — CUDA/CPU compatible"
+            }
+          }
+        }
+      }
+    },
+    "depth-anything-v2-base": {
+      "name": "Depth Anything V2 Base",
+      "type": "depth_estimation",
+      "input_size": [518, 392],
+      "description": "Monocular depth estimation — balanced speed and accuracy",
+      "platforms": {
+        "win32": {
+          "repository": "depth-anything/Depth-Anything-V2-Base",
+          "format": "pth",
+          "variants": {
+            "depth_anything_v2_vitb": {
+              "precision": "float32",
+              "size_mb": 390,
+              "description": "PyTorch ViT-B — CUDA/CPU/MPS compatible"
+            }
+          }
+        },
+        "linux": {
+          "repository": "depth-anything/Depth-Anything-V2-Base",
+          "format": "pth",
+          "variants": {
+            "depth_anything_v2_vitb": {
+              "precision": "float32",
+              "size_mb": 390,
+              "description": "PyTorch ViT-B — CUDA/CPU compatible"
+            }
+          }
+        }
+      }
+    },
+    "depth-anything-v2-large": {
+      "name": "Depth Anything V2 Large",
+      "type": "depth_estimation",
+      "input_size": [518, 392],
+      "description": "Monocular depth estimation — highest accuracy, more VRAM required",
+      "platforms": {
+        "win32": {
+          "repository": "depth-anything/Depth-Anything-V2-Large",
+          "format": "pth",
+          "variants": {
+            "depth_anything_v2_vitl": {
+              "precision": "float32",
+              "size_mb": 1340,
+              "description": "PyTorch ViT-L — CUDA recommended (1.3 GB)"
+            }
+          }
+        },
+        "linux": {
+          "repository": "depth-anything/Depth-Anything-V2-Large",
+          "format": "pth",
+          "variants": {
+            "depth_anything_v2_vitl": {
+              "precision": "float32",
+              "size_mb": 1340,
+              "description": "PyTorch ViT-L — CUDA recommended (1.3 GB)"
+            }
+          }
+        }
+      }
+    }
+  }
+}

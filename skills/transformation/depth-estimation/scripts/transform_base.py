@@ -415,7 +415,13 @@ class TransformSkillBase(ABC):
             if config_path.exists():
                 with open(config_path) as f:
                     return json.load(f)
-        return {"device": args.device}
+        # Merge all CLI args into config (--model, --colormap, --blend-mode, etc.)
+        config = {}
+        for k, v in vars(args).items():
+            if k != "config" and v is not None:
+                # Convert hyphens to underscores for consistency (e.g. blend-mode → blend_mode)
+                config[k.replace("-", "_")] = v
+        return config
 
     @staticmethod
     def _detect_hardware(device_pref: str = "auto") -> HardwareEnv:
