@@ -71,7 +71,7 @@ Each skill is a self-contained module with its own model, parameters, and [commu
 | **Detection** | [`yolo-detection-2026`](skills/detection/yolo-detection-2026/) | Real-time 80+ class detection — auto-accelerated via TensorRT / CoreML / OpenVINO / ONNX | ✅|
 | **Analysis** | [`home-security-benchmark`](skills/analysis/home-security-benchmark/) | [143-test evaluation suite](#-homesec-bench--how-secure-is-your-local-ai) for LLM & VLM security performance | ✅ |
 | | [`sam2-segmentation`](skills/analysis/sam2-segmentation/) | Click-to-segment with pixel-perfect masks | 📐 |
-| **Transformation** | [`depth-estimation`](skills/transformation/depth-estimation/) | Monocular depth maps with Depth Anything v2 | 📐 |
+| **Privacy** | [`depth-estimation`](skills/transformation/depth-estimation/) | [Real-time depth-map privacy transform](#-privacy--depth-map-anonymization) — anonymize camera feeds while preserving activity | ✅ |
 | **Annotation** | [`dataset-annotation`](skills/annotation/dataset-annotation/) | AI-assisted labeling → COCO export | 📐 |
 | **Camera Providers** | [`eufy`](skills/camera-providers/eufy/) · [`reolink`](skills/camera-providers/reolink/) · [`tapo`](skills/camera-providers/tapo/) | Direct camera integrations via RTSP | 📐 |
 | **Streaming** | [`go2rtc-cameras`](skills/streaming/go2rtc-cameras/) | RTSP → WebRTC live view | 📐 |
@@ -142,6 +142,24 @@ Camera → Frame Governor → detect.py (JSONL) → Aegis IPC → Live Overlay
 - ⚡ **Auto start** — set `auto_start: true` to begin detecting when Aegis launches
 
 📖 [Full Skill Documentation →](skills/detection/yolo-detection-2026/SKILL.md)
+
+## 🔒 Privacy — Depth Map Anonymization
+
+Watch your cameras **without seeing faces, clothing, or identities**. The [depth-estimation skill](skills/transformation/depth-estimation/) transforms live feeds into colorized depth maps using [Depth Anything v2](https://github.com/DepthAnything/Depth-Anything-V2) — warm colors for nearby objects, cool colors for distant ones.
+
+```
+Camera Frame ──→ Depth Anything v2 ──→ Colorized Depth Map ──→ Aegis Overlay
+   (live)          (0.5 FPS)           warm=near, cool=far      (privacy on)
+```
+
+- 🛡️ **Full anonymization** — `depth_only` mode hides all visual identity while preserving spatial activity
+- 🎨 **Overlay mode** — blend depth on top of original feed with adjustable opacity
+- ⚡ **Rate-limited** — 0.5 FPS frontend capture + backend scheduler keeps GPU load minimal
+- 🧩 **Extensible** — new privacy skills (blur, pixelation, silhouette) can subclass [`TransformSkillBase`](skills/transformation/depth-estimation/scripts/transform_base.py)
+
+Runs on the same [hardware acceleration stack](#hardware-acceleration) as YOLO detection — CUDA, MPS, ROCm, OpenVINO, or CPU.
+
+📖 [Full Skill Documentation →](skills/transformation/depth-estimation/SKILL.md) · 📖 [README →](skills/transformation/depth-estimation/README.md)
 
 ## 📊 HomeSec-Bench — How Secure Is Your Local AI?
 
