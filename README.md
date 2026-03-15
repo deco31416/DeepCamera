@@ -74,9 +74,6 @@ Each skill is a self-contained module with its own model, parameters, and [commu
 | **Annotation** | [`sam2-segmentation`](skills/annotation/sam2-segmentation/) | Click-to-segment with pixel-perfect masks | 📐 |
 | | [`dataset-annotation`](skills/annotation/dataset-annotation/) | AI-assisted labeling → COCO export | 📐 |
 | **Training** | [`model-training`](skills/training/model-training/) | Agent-driven YOLO fine-tuning — annotate, train, export, deploy | 📐 |
-| **Camera Providers** | [`eufy`](skills/camera-providers/eufy/) · [`reolink`](skills/camera-providers/reolink/) · [`tapo`](skills/camera-providers/tapo/) | Direct camera integrations via RTSP | 📐 |
-| **Streaming** | [`go2rtc-cameras`](skills/streaming/go2rtc-cameras/) | RTSP → WebRTC live view | 📐 |
-| **Channels** | [`matrix`](skills/channels/matrix/) · [`line`](skills/channels/line/) · [`signal`](skills/channels/signal/) | Messaging channels for Clawdbot agent | 📐 |
 | **Automation** | [`mqtt`](skills/automation/mqtt/) · [`webhook`](skills/automation/webhook/) · [`ha-trigger`](skills/automation/ha-trigger/) | Event-driven automation triggers | 📐 |
 | **Integrations** | [`homeassistant-bridge`](skills/integrations/homeassistant-bridge/) | HA cameras in ↔ detection results out | 📐 |
 
