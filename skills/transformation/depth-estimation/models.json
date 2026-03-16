@@ -59,31 +59,34 @@
           }
         },
         "linux": {
-          "repository": "depth-anything/Depth-Anything-V2-Small",
-          "format": "pth",
+          "repository": "onnx-community/depth-anything-v2-small",
+          "format": "onnx",
           "variants": {
-            "depth_anything_v2_vits": {
+            "model": {
               "precision": "float32",
-              "size_mb": 99.0,
-              "description": "PyTorch ViT-S — CUDA/CPU"
+              "size_mb": 98.0,
+              "description": "ONNX — CUDA/TensorRT/CPU"
+            },
+            "model_quantized": {
+              "precision": "int8",
+              "size_mb": 25.0,
+              "description": "ONNX INT8 quantized — smallest, fastest"
             }
           }
         },
         "win32": {
-          "repository": "depth-anything/Depth-Anything-V2-Small",
-          "format": "pth",
+          "repository": "onnx-community/depth-anything-v2-small",
+          "format": "onnx",
           "variants": {
-            "depth_anything_v2_vits": {
+            "model": {
               "precision": "float32",
-              "size_mb": 99.0,
-              "description": "PyTorch ViT-S — CUDA/CPU"
+              "size_mb": 98.0,
+              "description": "ONNX — CUDA/TensorRT/DirectML/CPU"
             },
-            "depth_anything_v2_vits_trt_fp16": {
-              "precision": "float16",
-              "size_mb": 52.6,
-              "format": "trt",
-              "requires": "tensorrt",
-              "description": "TensorRT FP16 — built locally, 6.9x faster"
+            "model_quantized": {
+              "precision": "int8",
+              "size_mb": 25.0,
+              "description": "ONNX INT8 quantized — smallest, fastest"
             }
           }
         }
@@ -96,24 +99,24 @@
       "input_size": [518, 392],
       "platforms": {
         "linux": {
-          "repository": "depth-anything/Depth-Anything-V2-Base",
-          "format": "pth",
+          "repository": "onnx-community/depth-anything-v2-base",
+          "format": "onnx",
           "variants": {
-            "depth_anything_v2_vitb": {
+            "model": {
               "precision": "float32",
               "size_mb": 390.0,
-              "description": "PyTorch ViT-B — CUDA/CPU"
+              "description": "ONNX — CUDA/TensorRT/CPU"
             }
           }
         },
         "win32": {
-          "repository": "depth-anything/Depth-Anything-V2-Base",
-          "format": "pth",
+          "repository": "onnx-community/depth-anything-v2-base",
+          "format": "onnx",
           "variants": {
-            "depth_anything_v2_vitb": {
+            "model": {
               "precision": "float32",
               "size_mb": 390.0,
-              "description": "PyTorch ViT-B — CUDA/CPU"
+              "description": "ONNX — CUDA/TensorRT/DirectML/CPU"
             }
           }
         }
@@ -126,24 +129,24 @@
       "input_size": [518, 392],
       "platforms": {
         "linux": {
-          "repository": "depth-anything/Depth-Anything-V2-Large",
-          "format": "pth",
+          "repository": "onnx-community/depth-anything-v2-large",
+          "format": "onnx",
           "variants": {
-            "depth_anything_v2_vitl": {
+            "model": {
               "precision": "float32",
               "size_mb": 1280.0,
-              "description": "PyTorch ViT-L — CUDA recommended"
+              "description": "ONNX — CUDA/TensorRT/CPU"
             }
           }
         },
         "win32": {
-          "repository": "depth-anything/Depth-Anything-V2-Large",
-          "format": "pth",
+          "repository": "onnx-community/depth-anything-v2-large",
+          "format": "onnx",
           "variants": {
-            "depth_anything_v2_vitl": {
+            "model": {
               "precision": "float32",
               "size_mb": 1280.0,
-              "description": "PyTorch ViT-L — CUDA recommended"
+              "description": "ONNX — CUDA/TensorRT/DirectML/CPU"
             }
           }
         }
