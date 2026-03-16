@@ -1,0 +1,107 @@
+{
+  "studio": {
+    "title": "3D Depth Vision Studio",
+    "subtitle": "GPU-accelerated depth maps • TensorRT FP16 or PyTorch CUDA",
+    "icon": "layers"
+  },
+  "models_dir": "~/.aegis-ai/models/feature-extraction",
+  "models": {
+    "depth-anything-v2-small": {
+      "name": "Depth Anything V2 Small",
+      "type": "depth_estimation",
+      "description": "Real-time monocular depth estimation — CUDA and TensorRT optimized",
+      "input_size": [518, 392],
+      "platforms": {
+        "linux": {
+          "repository": "depth-anything/Depth-Anything-V2-Small",
+          "format": "pth",
+          "variants": {
+            "depth_anything_v2_vits": {
+              "precision": "float32",
+              "size_mb": 99.0,
+              "description": "PyTorch ViT-S — CUDA/CPU"
+            }
+          }
+        },
+        "win32": {
+          "repository": "depth-anything/Depth-Anything-V2-Small",
+          "format": "pth",
+          "variants": {
+            "depth_anything_v2_vits": {
+              "precision": "float32",
+              "size_mb": 99.0,
+              "description": "PyTorch ViT-S — CUDA/CPU"
+            },
+            "depth_anything_v2_vits_trt_fp16": {
+              "precision": "float16",
+              "size_mb": 52.6,
+              "format": "trt",
+              "requires": "tensorrt",
+              "description": "TensorRT FP16 — built locally, 6.9x faster"
+            }
+          }
+        }
+      }
+    },
+    "depth-anything-v2-base": {
+      "name": "Depth Anything V2 Base",
+      "type": "depth_estimation",
+      "description": "Higher accuracy depth estimation — larger model",
+      "input_size": [518, 392],
+      "platforms": {
+        "linux": {
+          "repository": "depth-anything/Depth-Anything-V2-Base",
+          "format": "pth",
+          "variants": {
+            "depth_anything_v2_vitb": {
+              "precision": "float32",
+              "size_mb": 390.0,
+              "description": "PyTorch ViT-B — CUDA/CPU"
+            }
+          }
+        },
+        "win32": {
+          "repository": "depth-anything/Depth-Anything-V2-Base",
+          "format": "pth",
+          "variants": {
+            "depth_anything_v2_vitb": {
+              "precision": "float32",
+              "size_mb": 390.0,
+              "description": "PyTorch ViT-B — CUDA/CPU"
+            }
+          }
+        }
+      }
+    },
+    "depth-anything-v2-large": {
+      "name": "Depth Anything V2 Large",
+      "type": "depth_estimation",
+      "description": "Highest accuracy depth estimation — largest model",
+      "input_size": [518, 392],
+      "platforms": {
+        "linux": {
+          "repository": "depth-anything/Depth-Anything-V2-Large",
+          "format": "pth",
+          "variants": {
+            "depth_anything_v2_vitl": {
+              "precision": "float32",
+              "size_mb": 1280.0,
+              "description": "PyTorch ViT-L — CUDA recommended"
+            }
+          }
+        },
+        "win32": {
+          "repository": "depth-anything/Depth-Anything-V2-Large",
+          "format": "pth",
+          "variants": {
+            "depth_anything_v2_vitl": {
+              "precision": "float32",
+              "size_mb": 1280.0,
+              "description": "PyTorch ViT-L — CUDA recommended"
+            }
+          }
+        }
+      }
+    }
+  }
+}

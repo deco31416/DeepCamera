@@ -1,0 +1,19 @@
+# 3D Depth Vision (CUDA) — Dependencies
+# No depth-anything-v2 pip package needed (model code vendored in skill).
+# Works with Python >=3.9 (no Python 3.12 requirement).
+
+# ── PyTorch (CUDA) ───────────────────────────────────────────────────
+torch>=2.1.0
+torchvision>=0.16.0
+
+# ── Model weights download ──────────────────────────────────────────
+huggingface_hub>=0.20.0
+
+# ── Image processing ────────────────────────────────────────────────
+numpy>=1.24.0
+opencv-python-headless>=4.8.0
+Pillow>=10.0.0
+matplotlib>=3.7.0
+
+# ── TensorRT (primary backend — ~7x faster than PyTorch) ─────────────
+tensorrt>=10.0

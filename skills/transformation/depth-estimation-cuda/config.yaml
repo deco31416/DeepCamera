@@ -1,0 +1,54 @@
+# Depth Estimation CUDA — Configuration Schema
+# Parsed by Aegis skill-registry-service.cjs → parseConfigYaml()
+
+params:
+  - key: model
+    label: Depth Model
+    type: select
+    default: depth-anything-v2-small
+    description: "Depth Anything v2 model size — larger = more accurate but slower"
+    options:
+      - { value: depth-anything-v2-small, label: "Small (fastest, ~15ms CUDA)" }
+      - { value: depth-anything-v2-base, label: "Base (balanced, ~30ms CUDA)" }
+      - { value: depth-anything-v2-large, label: "Large (most accurate, ~60ms CUDA)" }
+
+  - key: colormap
+    label: Depth Colormap
+    type: select
+    default: inferno
+    description: "Color scheme for depth visualization"
+    options:
+      - { value: inferno, label: "Inferno (warm)" }
+      - { value: viridis, label: "Viridis (green-blue)" }
+      - { value: plasma, label: "Plasma" }
+      - { value: magma, label: "Magma" }
+      - { value: turbo, label: "Turbo (rainbow)" }
+      - { value: jet, label: "Jet" }
+      - { value: hot, label: "Hot" }
+      - { value: cool, label: "Cool" }
+
+  - key: blend_mode
+    label: Display Mode
+    type: select
+    default: depth_only
+    description: "How to display the depth map"
+    options:
+      - { value: depth_only, label: "Depth Only (full anonymization)" }
+      - { value: overlay, label: "Overlay (blended)" }
+      - { value: side_by_side, label: "Side by Side" }
+
+  - key: opacity
+    label: Overlay Opacity
+    type: number
+    default: 0.5
+    description: "Blend opacity for overlay mode (0.0–1.0)"
+
+  - key: device
+    label: Inference Device
+    type: select
+    default: auto
+    description: "Compute backend for inference"
+    options:
+      - { value: auto, label: "Auto-detect" }
+      - { value: cpu, label: "CPU" }
+      - { value: cuda, label: "NVIDIA CUDA" }

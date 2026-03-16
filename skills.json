@@ -169,6 +169,39 @@
       ]
     },
     {
+      "id": "depth-estimation-cuda",
+      "name": "3D Depth Vision (CUDA)",
+      "description": "GPU-accelerated depth maps — TensorRT FP16 or PyTorch CUDA. Privacy anonymization with Depth Anything v2.",
+      "version": "1.0.0",
+      "category": "privacy",
+      "path": "skills/transformation/depth-estimation-cuda",
+      "tags": [
+        "privacy",
+        "depth",
+        "transform",
+        "cuda",
+        "tensorrt",
+        "gpu"
+      ],
+      "platforms": [
+        "linux-x64",
+        "linux-arm64",
+        "win-x64"
+      ],
+      "requirements": {
+        "python": ">=3.9",
+        "ram_gb": 2
+      },
+      "capabilities": [
+        "live_transform",
+        "privacy_overlay"
+      ],
+      "ui_unlocks": [
+        "privacy_overlay",
+        "blind_mode"
+      ]
+    },
+    {
       "id": "model-training",
       "name": "Model Training",
       "description": "Agent-driven YOLO fine-tuning — annotate, train, auto-export to TensorRT/CoreML/OpenVINO, deploy as detection skill.",
