@@ -77,6 +77,13 @@
               "precision": "float32",
               "size_mb": 99.0,
               "description": "PyTorch ViT-S — CUDA/CPU"
+            },
+            "depth_anything_v2_vits_trt_fp16": {
+              "precision": "float16",
+              "size_mb": 52.6,
+              "format": "trt",
+              "requires": "tensorrt",
+              "description": "TensorRT FP16 — built locally, 6.9x faster"
             }
           }
         }
