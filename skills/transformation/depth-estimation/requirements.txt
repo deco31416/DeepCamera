@@ -20,3 +20,8 @@ numpy>=1.24.0
 opencv-python-headless>=4.8.0
 Pillow>=10.0.0
 matplotlib>=3.7.0
+
+# ── TensorRT (optional, Windows/Linux NVIDIA) ────────────────────────
+# If available, transform.py auto-selects TRT FP16 for ~7x speedup.
+# Falls back to PyTorch CUDA if not installed.
+tensorrt>=10.0; sys_platform != "darwin"
