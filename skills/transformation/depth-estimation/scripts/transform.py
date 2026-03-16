@@ -4,6 +4,7 @@ Depth Estimation Privacy Skill — Monocular depth maps via Depth Anything v2.
 
 Backend selection:
   macOS  → CoreML (.mlpackage via coremltools) — runs on Neural Engine
+  Win/Linux + NVIDIA + TensorRT → TensorRT FP16 (.trt engine) — fastest
   Other  → PyTorch (depth_anything_v2 pip package + HF weights) — runs on CUDA/MPS/CPU
 
 Implements the TransformSkillBase interface to provide real-time depth map
@@ -12,6 +13,7 @@ anonymizes the scene while preserving spatial layout and activity recognition.
 
 Usage:
   python transform.py --model depth-anything-v2-small --device auto
+  python transform.py --model depth-anything-v2-small --backend tensorrt
   python transform.py --config config.json
 """
 
@@ -70,6 +72,9 @@ COREML_INPUT_SIZE = (518, 392)  # width, height
 # Where Aegis DepthVisionStudio stores downloaded models
 MODELS_DIR = Path.home() / ".aegis-ai" / "models" / "feature-extraction"
 
+# TensorRT engine cache directory (engines are GPU-specific)
+TRT_CACHE_DIR = MODELS_DIR / "trt_engines"
+
 # PyTorch model configs (fallback on non-macOS)
 PYTORCH_CONFIGS = {
     "depth-anything-v2-small": {
@@ -110,6 +115,13 @@ class DepthEstimationSkill(TransformSkillBase):
         self.opacity = 0.5
         self.blend_mode = "depth_only"  # Default for privacy: depth_only anonymizes
         self._coreml_input_size = COREML_INPUT_SIZE
+        # TensorRT state (populated by _load_tensorrt)
+        self._trt_context = None
+        self._trt_input_name = None
+        self._trt_output_name = None
+        self._trt_input_tensor = None
+        self._trt_output_tensor = None
+        self._trt_stream = None
 
     def parse_extra_args(self, parser: argparse.ArgumentParser):
         parser.add_argument("--model", type=str, default="depth-anything-v2-small",
@@ -117,6 +129,9 @@ class DepthEstimationSkill(TransformSkillBase):
                                      "depth-anything-v2-large"])
         parser.add_argument("--variant", type=str, default=DEFAULT_COREML_VARIANT,
                             help="CoreML variant ID (macOS only)")
+        parser.add_argument("--backend", type=str, default="auto",
+                            choices=["auto", "tensorrt", "pytorch", "coreml"],
+                            help="Inference backend (auto = TRT if available, else PyTorch)")
         parser.add_argument("--colormap", type=str, default="inferno",
                             choices=list(COLORMAP_MAP.keys()))
         parser.add_argument("--blend-mode", type=str, default="depth_only",
@@ -136,6 +151,15 @@ class DepthEstimationSkill(TransformSkillBase):
                 return info
             except Exception as e:
                 _log(f"CoreML load failed ({e}), falling back to PyTorch", self._tag)
+
+        # Try TensorRT on Windows/Linux with CUDA (if available)
+        backend_pref = config.get("backend", "auto")
+        if backend_pref in ("auto", "tensorrt") and self.device == "cuda":
+            try:
+                info = self._load_tensorrt(model_name, config)
+                return info
+            except Exception as e:
+                _log(f"TensorRT load failed ({e}), falling back to PyTorch", self._tag)
 
         # Fallback: PyTorch
         return self._load_pytorch(model_name, config)
@@ -196,6 +220,155 @@ class DepthEstimationSkill(TransformSkillBase):
             _log(f"CoreML model download failed: {e}", self._tag)
             raise
 
+    # ── TensorRT backend (Windows/Linux NVIDIA) ───────────────────────
+
+    def _load_tensorrt(self, model_name: str, config: dict) -> dict:
+        """Load or build a TensorRT FP16 engine for fastest NVIDIA inference."""
+        import torch
+        import tensorrt as trt
+
+        _log(f"Attempting TensorRT FP16 for {model_name}", self._tag)
+
+        cfg = PYTORCH_CONFIGS.get(model_name)
+        if not cfg:
+            raise ValueError(f"Unknown model: {model_name}")
+
+        # Engine filename includes GPU name to avoid cross-GPU issues
+        gpu_tag = torch.cuda.get_device_name(0).replace(" ", "_").lower()
+        engine_path = TRT_CACHE_DIR / f"{cfg['filename'].replace('.pth', '')}_fp16_{gpu_tag}.trt"
+
+        if engine_path.exists():
+            _log(f"Loading cached TRT engine: {engine_path}", self._tag)
+            engine = self._deserialize_engine(engine_path)
+        else:
+            _log("No cached engine — building from ONNX (this takes 30-120s)...", self._tag)
+            engine = self._build_trt_engine(model_name, cfg, engine_path)
+
+        if engine is None:
+            raise RuntimeError("TensorRT engine build/load failed")
+
+        # Create execution context and pre-allocate buffers
+        self._trt_context = engine.create_execution_context()
+        self._trt_input_name = engine.get_tensor_name(0)
+        self._trt_output_name = engine.get_tensor_name(1)
+
+        # Pre-allocate a reference input to set shapes (1, 3, 518, 518)
+        input_shape = engine.get_tensor_shape(self._trt_input_name)
+        fixed_shape = tuple(1 if d == -1 else d for d in input_shape)
+        self._trt_context.set_input_shape(self._trt_input_name, fixed_shape)
+
+        # Pre-allocate GPU tensors
+        self._trt_input_tensor = torch.zeros(fixed_shape, dtype=torch.float32, device="cuda")
+        actual_out_shape = self._trt_context.get_tensor_shape(self._trt_output_name)
+        self._trt_output_tensor = torch.empty(list(actual_out_shape), dtype=torch.float32, device="cuda")
+
+        # Set tensor addresses
+        self._trt_context.set_tensor_address(self._trt_input_name, self._trt_input_tensor.data_ptr())
+        self._trt_context.set_tensor_address(self._trt_output_name, self._trt_output_tensor.data_ptr())
+        self._trt_stream = torch.cuda.current_stream().cuda_stream
+
+        self.backend = "tensorrt"
+        _log(f"TensorRT FP16 engine ready: {engine_path.name}", self._tag)
+        return {
+            "model": model_name,
+            "device": "cuda",
+            "blend_mode": self.blend_mode,
+            "colormap": config.get("colormap", "inferno"),
+            "backend": "tensorrt",
+            "engine": engine_path.name,
+        }
+
+    def _build_trt_engine(self, model_name: str, cfg: dict, engine_path: Path):
+        """Export PyTorch → ONNX → build TRT FP16 engine → serialize."""
+        import torch
+        import tensorrt as trt
+        from depth_anything_v2.dpt import DepthAnythingV2
+        from huggingface_hub import hf_hub_download
+
+        # Load PyTorch model temporarily for ONNX export
+        weights_path = hf_hub_download(cfg["repo"], cfg["filename"])
+        pt_model = DepthAnythingV2(
+            encoder=cfg["encoder"], features=cfg["features"],
+            out_channels=cfg["out_channels"],
+        )
+        pt_model.load_state_dict(torch.load(weights_path, map_location="cuda", weights_only=True))
+        pt_model.to("cuda").eval()
+
+        # Create dummy input and export to ONNX
+        dummy = torch.randn(1, 3, 518, 518, device="cuda")
+        onnx_path = TRT_CACHE_DIR / f"{cfg['filename'].replace('.pth', '')}.onnx"
+        TRT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+        _log(f"Exporting ONNX: {onnx_path.name}", self._tag)
+        torch.onnx.export(
+            pt_model, dummy, str(onnx_path),
+            input_names=["input"], output_names=["depth"],
+            dynamic_axes={"input": {0: "batch"}, "depth": {0: "batch"}},
+            opset_version=17,
+        )
+
+        # Free PyTorch model — no longer needed
+        del pt_model
+        torch.cuda.empty_cache()
+
+        # Build TRT engine
+        logger = trt.Logger(trt.Logger.WARNING)
+        builder = trt.Builder(logger)
+        network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
+        parser = trt.OnnxParser(network, logger)
+
+        _log("Parsing ONNX for TensorRT...", self._tag)
+        with open(str(onnx_path), "rb") as f:
+            if not parser.parse(f.read()):
+                for i in range(parser.num_errors):
+                    _log(f"  ONNX parse error: {parser.get_error(i)}", self._tag)
+                return None
+
+        config = builder.create_builder_config()
+        config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, 1 << 30)  # 1GB
+        config.set_flag(trt.BuilderFlag.FP16)
+
+        # Handle dynamic batch dimension
+        inp = network.get_input(0)
+        if any(d == -1 for d in inp.shape):
+            profile = builder.create_optimization_profile()
+            fixed = tuple(1 if d == -1 else d for d in inp.shape)
+            profile.set_shape(inp.name, fixed, fixed, fixed)
+            config.add_optimization_profile(profile)
+
+        _log("Building TRT FP16 engine (this is slow, ~30-120s)...", self._tag)
+        serialized = builder.build_serialized_network(network, config)
+        if serialized is None:
+            _log("TRT engine build failed!", self._tag)
+            return None
+
+        # TRT 10.15+ returns IHostMemory, not raw bytes — convert
+        engine_bytes = bytes(serialized)
+
+        # Serialize to disk for future starts
+        engine_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(str(engine_path), "wb") as f:
+            f.write(engine_bytes)
+        _log(f"Engine serialized: {engine_path} ({len(engine_bytes) / 1e6:.1f} MB)", self._tag)
+
+        # Clean up ONNX (no longer needed)
+        try:
+            onnx_path.unlink()
+        except OSError:
+            pass
+
+        runtime = trt.Runtime(logger)
+        return runtime.deserialize_cuda_engine(engine_bytes)
+
+    @staticmethod
+    def _deserialize_engine(engine_path: Path):
+        """Load a previously serialized TRT engine from disk."""
+        import tensorrt as trt
+        logger = trt.Logger(trt.Logger.WARNING)
+        runtime = trt.Runtime(logger)
+        with open(str(engine_path), "rb") as f:
+            return runtime.deserialize_cuda_engine(f.read())
+
     # ── PyTorch backend (fallback) ────────────────────────────────────
 
     def _load_pytorch(self, model_name: str, config: dict) -> dict:
@@ -242,6 +415,8 @@ class DepthEstimationSkill(TransformSkillBase):
 
         if self.backend == "coreml":
             depth_colored = self._infer_coreml(image)
+        elif self.backend == "tensorrt":
+            depth_colored = self._infer_tensorrt(image)
         else:
             depth_colored = self._infer_pytorch(image)
 
@@ -253,6 +428,43 @@ class DepthEstimationSkill(TransformSkillBase):
             output = depth_colored
 
         return output
+
+    def _infer_tensorrt(self, image):
+        """Run TensorRT FP16 inference and return colorized depth map."""
+        import torch
+        import cv2
+        import numpy as np
+
+        original_h, original_w = image.shape[:2]
+        rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+        # Preprocess: resize → normalize → NCHW tensor (same as PyTorch path)
+        resized = cv2.resize(rgb, (518, 518), interpolation=cv2.INTER_LINEAR)
+        img_float = resized.astype(np.float32) / 255.0
+        # ImageNet normalization
+        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+        std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+        img_float = (img_float - mean) / std
+        img_nchw = np.transpose(img_float, (2, 0, 1))[np.newaxis]  # (1, 3, 518, 518)
+
+        # Copy to pre-allocated GPU tensor
+        self._trt_input_tensor.copy_(torch.from_numpy(img_nchw))
+
+        # Execute
+        self._trt_context.execute_async_v3(self._trt_stream)
+        torch.cuda.synchronize()
+
+        # Read output
+        depth = self._trt_output_tensor.cpu().numpy()
+        depth = np.squeeze(depth)
+
+        # Normalize → colormap → resize
+        d_min, d_max = depth.min(), depth.max()
+        depth_norm = ((depth - d_min) / (d_max - d_min + 1e-8) * 255).astype(np.uint8)
+        depth_colored = cv2.applyColorMap(depth_norm, self.colormap_id)
+        depth_colored = cv2.resize(depth_colored, (original_w, original_h))
+
+        return depth_colored
 
     def _infer_coreml(self, image):
         """Run CoreML inference and return colorized depth map (BGR, original size)."""
