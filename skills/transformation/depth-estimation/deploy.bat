@@ -49,6 +49,17 @@ if errorlevel 1 (
     "%PYTHON%" -c "import torch; print(f'torch={torch.__version__}, CUDA={torch.cuda.is_available()}')"
 )
 
+REM ── TensorRT verification (optional) ──────────────────────────────
+echo.
+echo === TensorRT Check ===
+"%PYTHON%" -c "import tensorrt; print(f'[OK] TensorRT={tensorrt.__version__}')" 2>nul
+if errorlevel 1 (
+    echo [INFO] TensorRT not available — will use PyTorch CUDA backend
+    echo [INFO] To enable TensorRT: pip install tensorrt
+) else (
+    echo [OK] TensorRT FP16 acceleration available
+)
+
 echo.
 echo === Setup complete ===
 

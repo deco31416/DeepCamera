@@ -36,6 +36,13 @@
               "precision": "float32",
               "size_mb": 99,
               "description": "PyTorch ViT-S — CUDA/CPU/MPS compatible"
+            },
+            "depth_anything_v2_vits_trt_fp16": {
+              "precision": "float16",
+              "format": "trt",
+              "size_mb": 25,
+              "description": "TensorRT FP16 — Fastest (requires NVIDIA GPU + TensorRT)",
+              "requires": "tensorrt"
             }
           }
         },

@@ -65,9 +65,12 @@ When used for **privacy mode**, the `depth_only` blend mode fully anonymizes the
 | Platform | Backend | Runtime | Model |
 |----------|---------|---------|-------|
 | **macOS** | CoreML | Apple Neural Engine | `apple/coreml-depth-anything-v2-small` (.mlpackage) |
-| Linux/Windows | PyTorch | CUDA / CPU | `depth-anything/Depth-Anything-V2-Small` (.pth) |
+| Windows/Linux | **TensorRT** | NVIDIA TRT FP16 | Auto-built `.trt` engine (from ONNX) |
+| Windows/Linux | PyTorch | CUDA / CPU | `depth-anything/Depth-Anything-V2-Small` (.pth) |
 
-On macOS, CoreML runs on the Neural Engine, leaving the GPU free for other tasks. The model is auto-downloaded from HuggingFace and stored at `~/.aegis-ai/models/feature-extraction/`.
+On macOS, CoreML runs on the Neural Engine, leaving the GPU free for other tasks.
+On Windows/Linux with NVIDIA GPUs, TensorRT FP16 provides 2-4x speedup over vanilla PyTorch CUDA. Engines are auto-built on first run and cached at `~/.aegis-ai/models/feature-extraction/trt_engines/`.
+The model is auto-downloaded from HuggingFace and stored at `~/.aegis-ai/models/feature-extraction/`.
 
 ## What You Get
 

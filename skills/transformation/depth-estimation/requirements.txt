@@ -27,3 +27,10 @@ numpy>=1.24.0
 opencv-python-headless>=4.8.0
 Pillow>=10.0.0
 matplotlib>=3.7.0
+
+# ── TensorRT acceleration (optional, NVIDIA only) ───────────────────
+# Provides ~2-4x speedup over vanilla PyTorch CUDA via FP16 inference.
+# Requires NVIDIA GPU with Compute Capability >= 7.0 (Turing+).
+# If not installed, the skill gracefully falls back to PyTorch.
+tensorrt>=10.0; sys_platform != "darwin"
+onnxruntime-gpu>=1.17.0; sys_platform != "darwin"
