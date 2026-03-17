@@ -85,7 +85,8 @@ const VLM_URL = process.env.AEGIS_VLM_URL || getArg('vlm', '');
 const RESULTS_DIR = getArg('out', path.join(os.homedir(), '.aegis-ai', 'benchmarks'));
 const IS_SKILL_MODE = !!process.env.AEGIS_SKILL_ID;
 const NO_OPEN = args.includes('--no-open') || skillParams.noOpen || false;
-const TEST_MODE = skillParams.mode || 'full';
+// Auto-detect mode: if no VLM URL, default to 'llm' (skip VLM image-analysis tests)
+const TEST_MODE = skillParams.mode || (VLM_URL ? 'full' : 'llm');
 const IDLE_TIMEOUT_MS = 30000; // Streaming idle timeout — resets on each received token
 const FIXTURES_DIR = path.join(__dirname, '..', 'fixtures');
 
@@ -190,10 +191,34 @@ async function llmCall(messages, opts = {}) {
 
     // Sanitize messages for llama-server compatibility:
     // - Replace null content with empty string (llama-server rejects null)
-    messages = messages.map(m => ({
-        ...m,
-        ...(m.content === null && { content: '' }),
-    }));
+    // - Convert tool_calls assistant messages to plain text (llama-server
+    //   doesn't support OpenAI tool_calls format in conversation history)
+    // - Convert tool result messages to user messages
+    messages = messages.map(m => {
+        if (m.role === 'assistant' && m.tool_calls) {
+            // Convert tool call to text representation
+            const callDesc = m.tool_calls.map(tc =>
+                `[Calling ${tc.function.name}(${tc.function.arguments})]`
+            ).join('\n');
+            return { role: 'assistant', content: callDesc };
+        }
+        if (m.role === 'tool') {
+            // Convert tool result to user message 
+            return { role: 'user', content: `[Tool result]: ${m.content}` };
+        }
+        return {
+            ...m,
+            ...(m.content === null && { content: '' }),
+        };
+    });
+
+    // Determine the correct max-tokens parameter name:
+    // - OpenAI cloud (GPT-5.4+): requires 'max_completion_tokens', rejects 'max_tokens'
+    // - Local llama-server: requires 'max_tokens', may not understand 'max_completion_tokens'
+    const isCloudApi = !opts.vlm && (LLM_API_TYPE === 'openai' || LLM_BASE_URL.includes('openai.com') || LLM_BASE_URL.includes('api.anthropic'));
+    const maxTokensParam = opts.maxTokens
+        ? (isCloudApi ? { max_completion_tokens: opts.maxTokens } : { max_tokens: opts.maxTokens })
+        : {};
 
     // Build request params
     const params = {
@@ -201,7 +226,7 @@ async function llmCall(messages, opts = {}) {
         stream: true,
         ...(model && { model }),
         ...(opts.temperature !== undefined && { temperature: opts.temperature }),
-        ...(opts.maxTokens && { max_tokens: opts.maxTokens }),
+        ...maxTokensParam,
         ...(opts.expectJSON && opts.temperature === undefined && { temperature: 0.7 }),
         ...(opts.expectJSON && { top_p: 0.8 }),
         ...(opts.tools && { tools: opts.tools }),
@@ -353,7 +378,12 @@ async function llmCall(messages, opts = {}) {
 }
 
 function stripThink(text) {
-    return text.replace(/<think>[\s\S]*?<\/think>\s*/gi, '').trim();
+    // Strip standard <think>...</think> tags
+    let cleaned = text.replace(/<think>[\s\S]*?<\/think>\s*/gi, '').trim();
+    // Strip Qwen3.5 'Thinking Process:' blocks (outputs plain text reasoning
+    // instead of <think> tags when enable_thinking is active)
+    cleaned = cleaned.replace(/^Thinking Process[:\s]*[\s\S]*?(?=\n\s*[{\[]|\n```|$)/i, '').trim();
+    return cleaned;
 }
 
 function parseJSON(text) {
@@ -364,7 +394,7 @@ function parseJSON(text) {
         jsonStr = codeBlock[1];
     } else {
         // Find first { or [ and extract balanced JSON
-        const startIdx = cleaned.search(/[{[]/);
+        const startIdx = cleaned.search(/[{\[]/); 
         if (startIdx >= 0) {
             const opener = cleaned[startIdx];
             const closer = opener === '{' ? '}' : ']';
@@ -383,6 +413,15 @@ function parseJSON(text) {
             }
         }
     }
+    // Clean common local model artifacts before parsing:
+    // - Replace literal "..." or "…" placeholders in arrays/values
+    // - Replace <indices> placeholder tags
+    jsonStr = jsonStr
+        .replace(/,\s*\.{3,}\s*(?=[\]},])/g, '')   // trailing ..., before ] } or ,
+        .replace(/\.{3,}/g, '"..."')                 // standalone ... → string
+        .replace(/…/g, '"..."')                       // ellipsis char
+        .replace(/<[a-z_]+>/gi, '"placeholder"')      // <indices> etc.
+        .replace(/,\s*([}\]])/g, '$1');                // trailing commas
     return JSON.parse(jsonStr.trim());
 }
 
@@ -2090,7 +2129,10 @@ async function main() {
     });
 
     log('');
-    process.exit(failed > 0 ? 1 : 0);
+    // When running as Aegis skill, always exit 0 — test results are reported
+    // via JSON events (pass/fail is a result, not an error). Exit 1 only for
+    // standalone CLI usage where CI/CD pipelines expect non-zero on failures.
+    process.exit(IS_SKILL_MODE ? 0 : (failed > 0 ? 1 : 0));
 }
 
 // Run when executed directly — supports both plain Node and Electron spawn.
