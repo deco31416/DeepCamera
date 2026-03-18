@@ -48,7 +48,7 @@ params:
   - key: colormap
     label: Depth Colormap
     type: select
-    default: inferno
+    default: viridis
     description: "Color scheme for depth visualization"
     options:
       - { value: inferno, label: "Inferno (warm)" }

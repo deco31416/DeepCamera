@@ -141,7 +141,7 @@ class DepthEstimationSkill(TransformSkillBase):
                                      "depth-anything-v2-large"])
         parser.add_argument("--variant", type=str, default=DEFAULT_COREML_VARIANT,
                             help="CoreML variant ID (macOS only)")
-        parser.add_argument("--colormap", type=str, default="inferno",
+        parser.add_argument("--colormap", type=str, default="viridis",
                             choices=list(COLORMAP_MAP.keys()))
         parser.add_argument("--blend-mode", type=str, default="depth_only",
                             choices=["overlay", "side_by_side", "depth_only"])
