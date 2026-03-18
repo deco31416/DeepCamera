@@ -227,6 +227,9 @@ async function llmCall(messages, opts = {}) {
     // reasoning_content counts against the limit.
 
     // Build request params
+    // NOTE: Only send temperature/top_p to local llama-server.
+    // Cloud reasoning models (o1, GPT-5 mini/nano) reject custom temperature.
+    const useTemp = !isCloudApi;
     const params = {
         messages,
         stream: true,
@@ -234,9 +237,9 @@ async function llmCall(messages, opts = {}) {
         // llama-server crashes with "Failed to parse input" when stream_options is present)
         ...(isCloudApi && { stream_options: { include_usage: true } }),
         ...(model && { model }),
-        ...(opts.temperature !== undefined && { temperature: opts.temperature }),
-        ...(opts.expectJSON && opts.temperature === undefined && { temperature: 0.7 }),
-        ...(opts.expectJSON && { top_p: 0.8 }),
+        ...(useTemp && opts.temperature !== undefined && { temperature: opts.temperature }),
+        ...(useTemp && opts.expectJSON && opts.temperature === undefined && { temperature: 0.7 }),
+        ...(useTemp && opts.expectJSON && { top_p: 0.8 }),
         ...(opts.tools && { tools: opts.tools }),
     };
 
