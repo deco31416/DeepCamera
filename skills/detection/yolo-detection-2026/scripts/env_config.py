@@ -661,6 +661,72 @@ class HardwareEnv:
             _log("coremltools not available, loading without compute_units")
             return YOLO(model_path)
 
+    # ── ONNX model download from HuggingFace ──────────────────────────
+
+    # Maps model base name → onnx-community HuggingFace repo
+    _ONNX_HF_REPOS = {
+        "yolo26n": "onnx-community/yolo26n-ONNX",
+        "yolo26s": "onnx-community/yolo26s-ONNX",
+        "yolo26m": "onnx-community/yolo26m-ONNX",
+        "yolo26l": "onnx-community/yolo26l-ONNX",
+    }
+
+    def _download_onnx_from_hf(self, model_name: str, dest_path: Path) -> bool:
+        """Download pre-built ONNX model from onnx-community on HuggingFace.
+
+        Uses urllib (no extra dependencies). Downloads to dest_path.
+        Returns True on success, False on failure.
+        """
+        repo = self._ONNX_HF_REPOS.get(model_name)
+        if not repo:
+            _log(f"No HuggingFace repo for {model_name}")
+            return False
+
+        url = f"https://huggingface.co/{repo}/resolve/main/onnx/model.onnx"
+        names_url = None  # class names not available on HF, use bundled nano names
+
+        _log(f"Downloading {model_name}.onnx from {repo}...")
+        try:
+            import urllib.request
+            import shutil
+
+            # Download ONNX model
+            tmp_path = str(dest_path) + ".download"
+            with urllib.request.urlopen(url) as resp, open(tmp_path, 'wb') as f:
+                shutil.copyfileobj(resp, f)
+
+            # Rename to final path
+            Path(tmp_path).rename(dest_path)
+            size_mb = dest_path.stat().st_size / 1e6
+            _log(f"Downloaded {model_name}.onnx ({size_mb:.1f} MB)")
+
+            # Create class names JSON if missing (COCO 80 — same for all YOLO models)
+            names_path = Path(str(dest_path).replace('.onnx', '_names.json'))
+            if not names_path.exists():
+                # Try copying from nano (which is shipped in the repo)
+                nano_names = dest_path.parent / "yolo26n_names.json"
+                if nano_names.exists():
+                    shutil.copy2(str(nano_names), str(names_path))
+                    _log(f"Copied class names from yolo26n_names.json")
+                else:
+                    # Generate default COCO names
+                    import json
+                    coco_names = {str(i): f"class_{i}" for i in range(80)}
+                    with open(str(names_path), 'w') as f:
+                        json.dump(coco_names, f)
+                    _log("Generated default class names")
+
+            return True
+        except Exception as e:
+            _log(f"HuggingFace download failed: {e}")
+            # Clean up partial download
+            for p in [str(dest_path) + ".download", str(dest_path)]:
+                try:
+                    Path(p).unlink(missing_ok=True)
+                except Exception:
+                    pass
+            return False
+
     def _load_onnx_coreml(self, onnx_path: str):
         """Load ONNX model with CoreMLExecutionProvider for fast GPU/ANE inference.
 
@@ -674,11 +740,27 @@ class HardwareEnv:
         active = session.get_providers()
         _log(f"ONNX+CoreML session: {active}")
 
-        # Get YOLO class names from the .pt model (needed for detection output)
-        from ultralytics import YOLO
-        pt_path = onnx_path.replace('.onnx', '.pt')
-        pt_model = YOLO(pt_path)
-        class_names = pt_model.names  # {0: 'person', 1: 'bicycle', ...}
+        # Load class names from companion JSON (avoids torch/ultralytics dep)
+        import json
+        names_path = onnx_path.replace('.onnx', '_names.json')
+        try:
+            with open(names_path) as f:
+                raw = json.load(f)
+            # JSON keys are strings; convert to int-keyed dict
+            class_names = {int(k): v for k, v in raw.items()}
+            _log(f"Loaded {len(class_names)} class names from {Path(names_path).name}")
+        except FileNotFoundError:
+            # Fallback: try loading from .pt if JSON doesn't exist
+            try:
+                from ultralytics import YOLO
+                pt_path = onnx_path.replace('.onnx', '.pt')
+                pt_model = YOLO(pt_path)
+                class_names = pt_model.names
+                _log(f"Loaded class names from {Path(pt_path).name} (fallback)")
+            except Exception:
+                # Last resort: use COCO 80-class defaults
+                _log("WARNING: No class names found, using generic labels")
+                class_names = {i: f"class_{i}" for i in range(80)}
 
         return _OnnxCoreMLModel(session, class_names)
 
@@ -708,6 +790,19 @@ class HardwareEnv:
                     return model, self.export_format
                 except Exception as e:
                     _log(f"Failed to load cached model: {e}")
+
+            # Try downloading pre-built ONNX from HuggingFace (no torch needed)
+            if self.export_format == "onnx" and self._download_onnx_from_hf(model_name, optimized_path):
+                try:
+                    if self.backend == "mps":
+                        model = self._load_onnx_coreml(str(optimized_path))
+                    else:
+                        model = YOLO(str(optimized_path))
+                    self.load_ms = (time.perf_counter() - t0) * 1000
+                    _log(f"Loaded HuggingFace ONNX model ({self.load_ms:.0f}ms)")
+                    return model, self.export_format
+                except Exception as e:
+                    _log(f"Failed to load HF-downloaded model: {e}")
 
             # Try exporting then loading
             pt_model = YOLO(f"{model_name}.pt")
