@@ -276,9 +276,28 @@ async function llmCall(messages, opts = {}) {
 
     const callStartTime = Date.now();
     try {
-        const stream = await client.chat.completions.create(params, {
-            signal: controller.signal,
-        });
+        let streamParams = params;
+        let stream;
+        try {
+            stream = await client.chat.completions.create(streamParams, {
+                signal: controller.signal,
+            });
+        } catch (initErr) {
+            // Some models (o1, reasoning) reject temperature/top_p — retry without them
+            if (initErr?.status === 400 && String(initErr?.message || '').includes('temperature')) {
+                log('    ⚠️  Model rejected temperature — retrying without sampling params');
+                const { temperature, top_p, ...cleanParams } = streamParams;
+                streamParams = cleanParams;
+                // Reset idle timer for retry
+                clearTimeout(idleTimer);
+                idleTimer = setTimeout(() => controller.abort(), idleMs);
+                stream = await client.chat.completions.create(streamParams, {
+                    signal: controller.signal,
+                });
+            } else {
+                throw initErr;
+            }
+        }
 
         let content = '';
         let reasoningContent = '';
