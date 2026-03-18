@@ -620,7 +620,35 @@ function renderQuality() {
 
     // Multi-run comparison
     if (sel.length > 1) {
-        html += '<div class="section-title">Quality Comparison</div>';
+        // High-level summary comparison
+        html += '<div class="section-title">Overall Comparison</div>';
+        html += '<div class="table-wrap"><table class="compare-table"><thead><tr><th>Metric</th>';
+        for (const r of sel) html += '<th class="model-col">' + esc(modelShort(r.model)) + '<br><span style="font-weight:400;font-size:0.68rem">' + shortDate(r.timestamp) + '</span></th>';
+        html += '</tr></thead><tbody>';
+        const hiRows = [
+            ['Pass Rate', r => r.total > 0 ? pct(r.passed, r.total) + '%' : '—'],
+            ['Score', r => r.passed + '/' + r.total],
+            ['LLM Score', r => r.llmTotal > 0 ? (r.llmPassed || 0) + '/' + (r.llmTotal || 0) : '—'],
+            ['VLM Score', r => r.vlmTotal > 0 ? (r.vlmPassed || 0) + '/' + (r.vlmTotal || 0) : '—'],
+            ['Failed', r => String(r.failed)],
+            ['Time', r => fmt(r.timeMs / 1000) + 's'],
+            ['Throughput', r => r.timeMs > 0 && r.tokens ? fmt(r.tokens / (r.timeMs / 1000)) + ' tok/s' : '—'],
+        ];
+        for (const [label, fn] of hiRows) {
+            html += '<tr><td>' + label + '</td>';
+            // Find best value for highlighting
+            const vals = sel.map(fn);
+            for (let i = 0; i < sel.length; i++) {
+                const isBest = label === 'Failed' ? vals[i] === String(Math.min(...sel.map(r => r.failed))) :
+                    label === 'Pass Rate' ? vals[i] === pct(Math.max(...sel.map(r => r.passed)), sel[0].total) + '%' : false;
+                html += '<td' + (isBest && sel.length > 1 ? ' style="color:var(--green);font-weight:600"' : '') + '>' + vals[i] + '</td>';
+            }
+            html += '</tr>';
+        }
+        html += '</tbody></table></div>';
+
+        // Per-suite breakdown
+        html += '<div class="section-title">Suite Comparison</div>';
         html += '<div class="table-wrap"><table class="compare-table"><thead><tr><th>Suite</th>';
         for (const r of sel) html += '<th class="model-col">' + esc(modelShort(r.model)) + '</th>';
         html += '</tr></thead><tbody>';
