@@ -83,6 +83,11 @@ classification is universally strong even in 4B-parameter models,
 (3)~context window management remains challenging for all models, and
 (4)~local VLM inference on consumer hardware is feasible with sub-3B
 models but fails with larger architecture under memory pressure.
+The benchmark includes a \textbf{live Operations Center}---an
+auto-refreshing dashboard embedded in the host application that
+displays per-test progress, multi-run comparison, and real-time
+hardware telemetry (Apple Silicon GPU utilization, GPU memory, and
+system memory) during benchmark execution.
 HomeSec-Bench is released as an open-source DeepCamera skill, enabling
 reproducible evaluation of any OpenAI-compatible model endpoint.
 \end{abstract}
@@ -158,6 +163,11 @@ temporal reasoning required for cross-camera event deduplication.
     \item \textbf{Deployment decision matrix}: Actionable guidance for
     which model architecture suits which security task, considering
     latency, accuracy, privacy, and cost tradeoffs.
+    \item \textbf{Live Operations Center}: An integrated monitoring
+    dashboard that provides real-time benchmark progress, multi-run
+    comparison with quality and performance metrics, and hardware
+    resource telemetry (GPU/MPS utilization, GPU memory, system memory)
+    for edge deployment characterization.
 \end{enumerate}
 
 % ══════════════════════════════════════════════════════════════════════════════
@@ -290,6 +300,50 @@ structured JSON-lines events on stdout for real-time progress tracking.
 This design ensures the benchmark integrates natively with the system
 it evaluates, including realistic network latency and resource
 contention.
+
+\subsection{Operations Center}
+\label{sec:operations}
+
+HomeSec-Bench includes a \textbf{live Operations Center}---a self-contained
+HTML dashboard that opens automatically when the benchmark starts and
+provides real-time visibility into test execution.
+
+\textbf{Live Progress.} After each test completes, the benchmark saves
+intermediate results and regenerates the HTML report. The dashboard uses
+JavaScript-based auto-reload with \texttt{sessionStorage}-backed state
+preservation: the active tab, scroll position, sidebar selection, and
+primary run index persist across reload cycles. This enables operators
+to monitor per-test pass/fail status, TTFT, and decode speed as the
+benchmark runs.
+
+\textbf{Multi-Run Comparison.} The sidebar lists all historical runs
+(stored as individual JSON files in \texttt{\~{}/.aegis-ai/benchmarks/}).
+Users select multiple runs via checkboxes; the dashboard renders
+side-by-side comparison tables on both the \emph{Performance} tab
+(TTFT, decode speed, server prefill/decode, GPU utilization, memory)
+and the \emph{Quality} tab (overall pass rate, LLM/VLM scores,
+per-suite breakdown). Hero cards update instantly to reflect the
+selected primary run.
+
+\textbf{Hardware Telemetry.} After each suite completes, the benchmark
+samples system resources via a no-sudo \texttt{sampleResourceMetrics()}
+function:
+\begin{itemize}[nosep]
+    \item \textbf{Apple Silicon GPU}: Device utilization (\%), renderer
+    utilization, tiler utilization, in-use GPU memory, and allocated
+    memory---parsed from \texttt{ioreg -r -c AGXAccelerator}
+    \texttt{PerformanceStatistics}.
+    \item \textbf{System Memory}: Total, free, and used RAM via Node.js
+    \texttt{os.totalmem()} / \texttt{os.freemem()}.
+    \item \textbf{Process Memory}: Node.js RSS via
+    \texttt{process.memoryUsage()}.
+\end{itemize}
+Samples are stored per-suite in \texttt{results.resourceSamples} and
+persisted in the benchmark index, enabling cross-run resource
+comparison. This is particularly valuable for edge deployment
+characterization---operators can correlate model accuracy with GPU
+memory pressure and identify configurations that saturate available
+unified memory.
 
 % ══════════════════════════════════════════════════════════════════════════════
 % 4. BENCHMARK DESIGN
@@ -1110,6 +1164,12 @@ context management, temporal reasoning, and local VLM inference under
 memory pressure remain significant challenges, arguing for hybrid
 architectures that route complex tasks to cloud APIs while preserving
 privacy for routine operations.
+
+The live Operations Center---with real-time progress tracking,
+multi-run comparison, and hardware telemetry---transforms
+HomeSec-Bench from a batch evaluation tool into an interactive
+platform for iterative model selection and edge deployment
+characterization.
 
 The benchmark, all fixtures, and historical results are available at:
 \url{https://github.com/SharpAI/DeepCamera}
