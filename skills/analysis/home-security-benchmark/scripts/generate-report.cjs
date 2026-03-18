@@ -132,8 +132,8 @@ function buildHTML(allResults, fixtureImages, { liveMode = false, liveStatus = n
 
     const fixtureJSON = JSON.stringify(fixtureImages);
 
-    // Live mode: auto-refresh meta tag
-    const refreshMeta = liveMode ? '<meta http-equiv="refresh" content="5">' : '';
+    // Live mode: JS-based reload (stateful, preserves active tab + scroll)
+    const refreshMeta = '';
     const liveBannerHTML = liveMode ? buildLiveBanner(liveStatus) : '';
 
     return `<!DOCTYPE html>
@@ -435,7 +435,7 @@ function buildSidebar() {
     let html = '';
     for (const [family, runs] of Object.entries(groups)) {
         html += '<div class="model-group">';
-        html += '<div class="model-group-label" onclick="this.parentElement.classList.toggle(\'collapsed\')"><span class="arrow">▾</span> ' + esc(family) + ' <span style="color:var(--text-muted);font-weight:400">(' + runs.length + ')</span></div>';
+        html += '<div class="model-group-label" onclick="this.parentElement.classList.toggle(&#39;collapsed&#39;)"><span class="arrow">▾</span> ' + esc(family) + ' <span style="color:var(--text-muted);font-weight:400">(' + runs.length + ')</span></div>';
         html += '<div class="run-list">';
         for (const r of runs.reverse()) {
             const sel = selectedIndices.has(r._idx);
@@ -839,6 +839,38 @@ function refresh() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// LIVE RELOAD (stateful — preserves tab + scroll)
+// ═══════════════════════════════════════════════════════════════════════════════
+const IS_LIVE = ${liveMode ? 'true' : 'false'};
+
+function saveState() {
+    try {
+        sessionStorage.setItem('_bench_tab', getActiveTab());
+        sessionStorage.setItem('_bench_scroll', String(window.scrollY));
+    } catch {}
+}
+
+function restoreState() {
+    try {
+        const tab = sessionStorage.getItem('_bench_tab');
+        if (tab && tab !== 'performance') {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+            const tabEl = document.querySelector('.tab[data-tab="' + tab + '"]');
+            if (tabEl) tabEl.classList.add('active');
+            const panel = document.getElementById('tab-' + tab);
+            if (panel) panel.classList.add('active');
+        }
+        const scroll = parseInt(sessionStorage.getItem('_bench_scroll') || '0');
+        if (scroll > 0) setTimeout(() => window.scrollTo(0, scroll), 50);
+    } catch {}
+}
+
+if (IS_LIVE) {
+    setTimeout(() => { saveState(); location.reload(); }, 5000);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════════════════════════════
 document.getElementById('btn-export').addEventListener('click', exportMarkdown);
@@ -847,6 +879,7 @@ document.getElementById('btn-compare').addEventListener('click', () => {
     if (selectedIndices.size > 1) renderActiveTab();
 });
 
+restoreState();
 refresh();
 </script>
 </body>
