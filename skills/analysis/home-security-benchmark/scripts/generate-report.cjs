@@ -465,8 +465,16 @@ function buildSidebar() {
     document.querySelectorAll('.run-item input[type="checkbox"]').forEach(cb => {
         cb.addEventListener('change', (e) => {
             const idx = parseInt(cb.dataset.idx);
-            if (cb.checked) selectedIndices.add(idx);
-            else selectedIndices.delete(idx);
+            if (cb.checked) {
+                selectedIndices.add(idx);
+                primaryIndex = idx; // Switch hero cards to newly checked run
+            } else {
+                selectedIndices.delete(idx);
+                if (primaryIndex === idx) {
+                    // Primary was unchecked — fall back to first remaining
+                    primaryIndex = selectedIndices.size > 0 ? [...selectedIndices][0] : idx;
+                }
+            }
             if (selectedIndices.size === 0) { selectedIndices.add(primaryIndex); }
             refresh();
         });
@@ -525,6 +533,7 @@ function renderPerformance() {
         html += '<div class="table-wrap"><table class="compare-table"><thead><tr><th>Metric</th>';
         for (const r of sel) html += '<th class="model-col">' + esc(modelShort(r.model)) + '<br><span style="font-weight:400;font-size:0.68rem">' + shortDate(r.timestamp) + '</span></th>';
         html += '</tr></thead><tbody>';
+        const hasResource = sel.some(r => r.perfSummary?.resource?.gpu);
         const metrics = [
             ['TTFT avg (ms)', r => fmtInt(r.perfSummary?.ttft?.avgMs)],
             ['TTFT p50 (ms)', r => fmtInt(r.perfSummary?.ttft?.p50Ms)],
@@ -534,6 +543,11 @@ function renderPerformance() {
             ['Server Decode (tok/s)', r => fmt(r.perfSummary?.server?.decodeTokensPerSec)],
             ['Total Time (s)', r => fmt(r.timeMs / 1000)],
             ['Total Tokens', r => fmtK(r.tokens || 0)],
+            ...(hasResource ? [
+                ['GPU Utilization (%)', r => r.perfSummary?.resource?.gpu ? r.perfSummary.resource.gpu.util + '%' : '—'],
+                ['GPU Memory (GB)', r => r.perfSummary?.resource?.gpu?.memUsedGB != null ? fmt(r.perfSummary.resource.gpu.memUsedGB) : '—'],
+                ['System Memory (GB)', r => r.perfSummary?.resource?.sys ? fmt(r.perfSummary.resource.sys.usedGB) + '/' + fmt(r.perfSummary.resource.sys.totalGB) : '—'],
+            ] : []),
         ];
         for (const [label, fn] of metrics) {
             html += '<tr><td style="font-weight:500">' + label + '</td>';
