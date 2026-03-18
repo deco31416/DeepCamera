@@ -58,11 +58,12 @@ BACKEND_SPECS = {
     ),
     "mps": BackendSpec(
         name="mps",
-        export_format="coreml",
-        model_suffix=".mlpackage",
-        half=True,
-        extra_export_args={"nms": False},
-        compute_units="cpu_and_ne",  # Route to Neural Engine, leave GPU free for LLM/VLM
+        export_format="onnx",
+        model_suffix=".onnx",
+        half=False,  # ONNX Runtime handles precision internally
+        # ONNX Runtime + CoreMLExecutionProvider bypasses the broken
+        # MPSGraphExecutable MLIR pipeline on macOS 26.x while still
+        # leveraging GPU/ANE via CoreML under the hood.
     ),
     "intel": BackendSpec(
         name="intel",
@@ -77,6 +78,116 @@ BACKEND_SPECS = {
         half=False,
     ),
 }
+
+# ─── ONNX + CoreML EP wrapper ────────────────────────────────────────────────
+# Provides an ultralytics-compatible model interface using onnxruntime directly
+# with CoreMLExecutionProvider for ~6ms inference on Apple Silicon (vs 21ms when
+# ultralytics defaults to CPUExecutionProvider).
+
+class _BoxResult:
+    """Minimal replacement for ultralytics Boxes result."""
+    __slots__ = ('xyxy', 'conf', 'cls')
+
+    def __init__(self, xyxy, conf, cls):
+        self.xyxy = xyxy   # [[x1,y1,x2,y2]]
+        self.conf = conf   # [conf]
+        self.cls = cls     # [cls_id]
+
+
+class _DetResult:
+    """Minimal replacement for ultralytics Results."""
+    __slots__ = ('boxes',)
+
+    def __init__(self, boxes: list):
+        self.boxes = boxes
+
+
+class _OnnxCoreMLModel:
+    """ONNX Runtime model with CoreML EP, compatible with ultralytics API.
+
+    Supports: model(image_path_or_pil, conf=0.5, verbose=False)
+    Returns:  list of _DetResult with .boxes iterable of _BoxResult
+    """
+
+    def __init__(self, session, class_names: dict):
+        self.session = session
+        self.names = class_names
+        self._input_name = session.get_inputs()[0].name
+        # Expected input shape: [1, 3, H, W]
+        shape = session.get_inputs()[0].shape
+        self._input_h = shape[2] if isinstance(shape[2], int) else 640
+        self._input_w = shape[3] if isinstance(shape[3], int) else 640
+
+    def __call__(self, source, conf: float = 0.25, verbose: bool = True, **kwargs):
+        """Run inference on an image path or PIL Image.
+
+        All models use onnx-community HuggingFace format:
+          outputs[0] = logits  [1, 300, 80]  (raw, pre-sigmoid)
+          outputs[1] = pred_boxes [1, 300, 4] (cx, cy, w, h normalized 0..1)
+        """
+        import numpy as np
+        from PIL import Image
+
+        # Load image
+        if isinstance(source, str):
+            img = Image.open(source).convert("RGB")
+        elif isinstance(source, Image.Image):
+            img = source.convert("RGB")
+        else:
+            img = Image.fromarray(source).convert("RGB")
+
+        orig_w, orig_h = img.size
+
+        # Letterbox resize to input size
+        scale = min(self._input_w / orig_w, self._input_h / orig_h)
+        new_w, new_h = int(orig_w * scale), int(orig_h * scale)
+        img_resized = img.resize((new_w, new_h), Image.BILINEAR)
+
+        # Pad to input size (center)
+        pad_x = (self._input_w - new_w) // 2
+        pad_y = (self._input_h - new_h) // 2
+        canvas = np.full((self._input_h, self._input_w, 3), 114, dtype=np.uint8)
+        canvas[pad_y:pad_y + new_h, pad_x:pad_x + new_w] = np.array(img_resized)
+
+        # HWC→CHW, normalize, add batch dim
+        blob = canvas.transpose(2, 0, 1).astype(np.float32) / 255.0
+        blob = np.expand_dims(blob, 0)
+
+        # Run inference
+        outputs = self.session.run(None, {self._input_name: blob})
+        logits = outputs[0][0]      # [300, 80] raw class logits
+        pred_boxes = outputs[1][0]  # [300, 4]  cx, cy, w, h (normalized 0..1)
+
+        # Sigmoid → class probabilities
+        probs = 1.0 / (1.0 + np.exp(-logits))
+
+        # Parse detections
+        boxes = []
+        for i in range(len(pred_boxes)):
+            cls_id = int(np.argmax(probs[i]))
+            det_conf = float(probs[i][cls_id])
+            if det_conf < conf:
+                continue
+
+            # cx,cy,w,h (normalized) → x1,y1,x2,y2 (original image pixels)
+            cx, cy, bw, bh = pred_boxes[i]
+            px_cx = cx * self._input_w
+            px_cy = cy * self._input_h
+            px_w = bw * self._input_w
+            px_h = bh * self._input_h
+
+            x1 = max(0, min((px_cx - px_w / 2 - pad_x) / scale, orig_w))
+            y1 = max(0, min((px_cy - px_h / 2 - pad_y) / scale, orig_h))
+            x2 = max(0, min((px_cx + px_w / 2 - pad_x) / scale, orig_w))
+            y2 = max(0, min((px_cy + px_h / 2 - pad_y) / scale, orig_h))
+
+            boxes.append(_BoxResult(
+                xyxy=np.array([[x1, y1, x2, y2]]),
+                conf=np.array([det_conf]),
+                cls=np.array([cls_id]),
+            ))
+
+        return [_DetResult(boxes)]
 
 
 # ─── Hardware detection ──────────────────────────────────────────────────────
@@ -133,31 +244,79 @@ class HardwareEnv:
         return env
 
     def _try_cuda(self) -> bool:
-        """Detect NVIDIA GPU via nvidia-smi and torch."""
-        if not shutil.which("nvidia-smi"):
-            return False
+        """Detect NVIDIA GPU via nvidia-smi (with Windows path search) and WMI fallback."""
+        nvidia_smi = shutil.which("nvidia-smi")
+
+        # Windows: check well-known paths if not on PATH
+        if not nvidia_smi and platform.system() == "Windows":
+            for candidate in [
+                Path(os.environ.get("PROGRAMFILES", r"C:\Program Files"))
+                / "NVIDIA Corporation" / "NVSMI" / "nvidia-smi.exe",
+                Path(os.environ.get("WINDIR", r"C:\Windows"))
+                / "System32" / "nvidia-smi.exe",
+            ]:
+                if candidate.is_file():
+                    nvidia_smi = str(candidate)
+                    _log(f"Found nvidia-smi at {nvidia_smi}")
+                    break
+
+        if nvidia_smi:
+            try:
+                result = subprocess.run(
+                    [nvidia_smi, "--query-gpu=name,memory.total,driver_version",
+                     "--format=csv,noheader,nounits"],
+                    capture_output=True, text=True, timeout=10,
+                )
+                if result.returncode == 0:
+                    line = result.stdout.strip().split("\n")[0]
+                    parts = [p.strip() for p in line.split(",")]
+                    if len(parts) >= 3:
+                        self.backend = "cuda"
+                        self.device = "cuda"
+                        self.gpu_name = parts[0]
+                        self.gpu_memory_mb = int(float(parts[1]))
+                        self.driver_version = parts[2]
+                        self.detection_details["nvidia_smi"] = line
+                        _log(f"NVIDIA GPU: {self.gpu_name} ({self.gpu_memory_mb}MB, driver {self.driver_version})")
+                        return True
+            except (subprocess.TimeoutExpired, FileNotFoundError, ValueError) as e:
+                _log(f"nvidia-smi probe failed: {e}")
+
+        # Windows WMI fallback: detect NVIDIA GPU even without nvidia-smi on PATH
+        if platform.system() == "Windows":
+            return self._try_cuda_wmi()
+
+        return False
+
+    def _try_cuda_wmi(self) -> bool:
+        """Windows-only: detect NVIDIA GPU via WMI (wmic)."""
         try:
             result = subprocess.run(
-                ["nvidia-smi", "--query-gpu=name,memory.total,driver_version",
-                 "--format=csv,noheader,nounits"],
+                ["wmic", "path", "win32_VideoController", "get",
+                 "Name,AdapterRAM,DriverVersion", "/format:csv"],
                 capture_output=True, text=True, timeout=10,
             )
             if result.returncode != 0:
                 return False
 
-            line = result.stdout.strip().split("\n")[0]
-            parts = [p.strip() for p in line.split(",")]
-            if len(parts) >= 3:
-                self.backend = "cuda"
-                self.device = "cuda"
-                self.gpu_name = parts[0]
-                self.gpu_memory_mb = int(float(parts[1]))
-                self.driver_version = parts[2]
-                self.detection_details["nvidia_smi"] = line
-                _log(f"NVIDIA GPU: {self.gpu_name} ({self.gpu_memory_mb}MB, driver {self.driver_version})")
-                return True
+            for line in result.stdout.strip().split("\n"):
+                if "NVIDIA" in line.upper():
+                    parts = [p.strip() for p in line.split(",")]
+                    # CSV format: Node,AdapterRAM,DriverVersion,Name
+                    if len(parts) >= 4:
+                        self.backend = "cuda"
+                        self.device = "cuda"
+                        self.gpu_name = parts[3]
+                        try:
+                            self.gpu_memory_mb = int(int(parts[1]) / (1024 * 1024))
+                        except (ValueError, IndexError):
+                            pass
+                        self.driver_version = parts[2] if len(parts) > 2 else ""
+                        self.detection_details["wmi"] = line
+                        _log(f"NVIDIA GPU (WMI): {self.gpu_name} ({self.gpu_memory_mb}MB)")
+                        return True
         except (subprocess.TimeoutExpired, FileNotFoundError, ValueError) as e:
-            _log(f"nvidia-smi probe failed: {e}")
+            _log(f"WMI probe failed: {e}")
         return False
 
     def _try_rocm(self) -> bool:
@@ -363,12 +522,28 @@ class HardwareEnv:
         _log("Fix: pip uninstall onnxruntime && pip install onnxruntime-rocm")
         raise ImportError("ROCmExecutionProvider not available")
 
+    def _check_mps_runtime(self):
+        """Verify onnxruntime has CoreML provider for Apple GPU/ANE acceleration.
+
+        ONNX Runtime + CoreMLExecutionProvider bypasses the broken
+        MPSGraphExecutable MLIR pipeline (macOS 26.x) while still routing
+        inference through CoreML to leverage GPU and Neural Engine.
+        """
+        import onnxruntime
+        providers = onnxruntime.get_available_providers()
+        if "CoreMLExecutionProvider" in providers:
+            _log(f"onnxruntime CoreML provider available: {providers}")
+            return True
+        _log(f"onnxruntime providers: {providers} — CoreMLExecutionProvider not found")
+        _log("Fix: pip install onnxruntime  (arm64 macOS wheel includes CoreML EP)")
+        raise ImportError("CoreMLExecutionProvider not available")
+
     def _check_framework(self) -> bool:
-        """Check if the optimized inference runtime is importable."""
+        """Check if the optimized inference runtime is importable and compatible."""
         checks = {
             "cuda": lambda: __import__("tensorrt"),
             "rocm": lambda: self._check_rocm_runtime(),
-            "mps": lambda: __import__("coremltools"),
+            "mps": lambda: self._check_mps_runtime(),
             "intel": lambda: __import__("openvino"),
             "cpu": lambda: __import__("onnxruntime"),
         }
@@ -496,6 +671,109 @@ class HardwareEnv:
             _log("coremltools not available, loading without compute_units")
             return YOLO(model_path)
 
+    # ── ONNX model download from HuggingFace ──────────────────────────
+
+    # Maps model base name → onnx-community HuggingFace repo
+    _ONNX_HF_REPOS = {
+        "yolo26n": "onnx-community/yolo26n-ONNX",
+        "yolo26s": "onnx-community/yolo26s-ONNX",
+        "yolo26m": "onnx-community/yolo26m-ONNX",
+        "yolo26l": "onnx-community/yolo26l-ONNX",
+    }
+
+    def _download_onnx_from_hf(self, model_name: str, dest_path: Path) -> bool:
+        """Download pre-built ONNX model from onnx-community on HuggingFace.
+
+        Uses urllib (no extra dependencies). Downloads to dest_path.
+        Returns True on success, False on failure.
+        """
+        repo = self._ONNX_HF_REPOS.get(model_name)
+        if not repo:
+            _log(f"No HuggingFace repo for {model_name}")
+            return False
+
+        url = f"https://huggingface.co/{repo}/resolve/main/onnx/model.onnx"
+        names_url = None  # class names not available on HF, use bundled nano names
+
+        _log(f"Downloading {model_name}.onnx from {repo}...")
+        try:
+            import urllib.request
+            import shutil
+
+            # Download ONNX model
+            tmp_path = str(dest_path) + ".download"
+            with urllib.request.urlopen(url) as resp, open(tmp_path, 'wb') as f:
+                shutil.copyfileobj(resp, f)
+
+            # Rename to final path
+            Path(tmp_path).rename(dest_path)
+            size_mb = dest_path.stat().st_size / 1e6
+            _log(f"Downloaded {model_name}.onnx ({size_mb:.1f} MB)")
+
+            # Create class names JSON if missing (COCO 80 — same for all YOLO models)
+            names_path = Path(str(dest_path).replace('.onnx', '_names.json'))
+            if not names_path.exists():
+                # Try copying from nano (which is shipped in the repo)
+                nano_names = dest_path.parent / "yolo26n_names.json"
+                if nano_names.exists():
+                    shutil.copy2(str(nano_names), str(names_path))
+                    _log(f"Copied class names from yolo26n_names.json")
+                else:
+                    # Generate default COCO names
+                    import json
+                    coco_names = {str(i): f"class_{i}" for i in range(80)}
+                    with open(str(names_path), 'w') as f:
+                        json.dump(coco_names, f)
+                    _log("Generated default class names")
+
+            return True
+        except Exception as e:
+            _log(f"HuggingFace download failed: {e}")
+            # Clean up partial download
+            for p in [str(dest_path) + ".download", str(dest_path)]:
+                try:
+                    Path(p).unlink(missing_ok=True)
+                except Exception:
+                    pass
+            return False
+
+    def _load_onnx_coreml(self, onnx_path: str):
+        """Load ONNX model with CoreMLExecutionProvider for fast GPU/ANE inference.
+
+        Returns an OnnxCoreMLModel wrapper that is compatible with the
+        ultralytics model(frame_path, conf=...) call pattern.
+        """
+        import onnxruntime as ort
+
+        providers = ['CoreMLExecutionProvider', 'CPUExecutionProvider']
+        session = ort.InferenceSession(onnx_path, providers=providers)
+        active = session.get_providers()
+        _log(f"ONNX+CoreML session: {active}")
+
+        # Load class names from companion JSON (avoids torch/ultralytics dep)
+        import json
+        names_path = onnx_path.replace('.onnx', '_names.json')
+        try:
+            with open(names_path) as f:
+                raw = json.load(f)
+            # JSON keys are strings; convert to int-keyed dict
+            class_names = {int(k): v for k, v in raw.items()}
+            _log(f"Loaded {len(class_names)} class names from {Path(names_path).name}")
+        except FileNotFoundError:
+            # Fallback: try loading from .pt if JSON doesn't exist
+            try:
+                from ultralytics import YOLO
+                pt_path = onnx_path.replace('.onnx', '.pt')
+                pt_model = YOLO(pt_path)
+                class_names = pt_model.names
+                _log(f"Loaded class names from {Path(pt_path).name} (fallback)")
+            except Exception:
+                # Last resort: use COCO 80-class defaults
+                _log("WARNING: No class names found, using generic labels")
+                class_names = {i: f"class_{i}" for i in range(80)}
+
+        return _OnnxCoreMLModel(session, class_names)
+
     def load_optimized(self, model_name: str, use_optimized: bool = True):
         """
         Load the best available model for this hardware.
@@ -512,10 +790,9 @@ class HardwareEnv:
             optimized_path = self.get_optimized_path(model_name)
             if optimized_path.exists():
                 try:
-                    # On Apple Silicon: route CoreML to Neural Engine
-                    if self.backend == "mps" and self.compute_units != "all":
-                        model = self._load_coreml_with_compute_units(
-                            str(optimized_path))
+                    # MPS: use ONNX Runtime + CoreML EP for fast inference
+                    if self.backend == "mps":
+                        model = self._load_onnx_coreml(str(optimized_path))
                     else:
                         model = YOLO(str(optimized_path))
                     self.load_ms = (time.perf_counter() - t0) * 1000
@@ -524,15 +801,27 @@ class HardwareEnv:
                 except Exception as e:
                     _log(f"Failed to load cached model: {e}")
 
+            # Try downloading pre-built ONNX from HuggingFace (no torch needed)
+            if self.export_format == "onnx" and self._download_onnx_from_hf(model_name, optimized_path):
+                try:
+                    if self.backend == "mps":
+                        model = self._load_onnx_coreml(str(optimized_path))
+                    else:
+                        model = YOLO(str(optimized_path))
+                    self.load_ms = (time.perf_counter() - t0) * 1000
+                    _log(f"Loaded HuggingFace ONNX model ({self.load_ms:.0f}ms)")
+                    return model, self.export_format
+                except Exception as e:
+                    _log(f"Failed to load HF-downloaded model: {e}")
+
             # Try exporting then loading
             pt_model = YOLO(f"{model_name}.pt")
             exported = self.export_model(pt_model, model_name)
             if exported:
                 try:
-                    # On Apple Silicon: route CoreML to Neural Engine
-                    if self.backend == "mps" and self.compute_units != "all":
-                        model = self._load_coreml_with_compute_units(
-                            str(exported))
+                    # MPS: use ONNX Runtime + CoreML EP for fast inference
+                    if self.backend == "mps":
+                        model = self._load_onnx_coreml(str(exported))
                     else:
                         model = YOLO(str(exported))
                     self.load_ms = (time.perf_counter() - t0) * 1000
