@@ -149,7 +149,7 @@ class DepthEstimationSkill(TransformSkillBase):
 
     def load_model(self, config: dict) -> dict:
         model_name = config.get("model", "depth-anything-v2-small")
-        self.colormap_id = COLORMAP_MAP.get(config.get("colormap", "inferno"), 1)
+        self.colormap_id = COLORMAP_MAP.get(config.get("colormap", "viridis"), 16)
         self.opacity = config.get("opacity", 0.5)
         self.blend_mode = config.get("blend_mode", "depth_only")
 
@@ -204,7 +204,7 @@ class DepthEstimationSkill(TransformSkillBase):
             "model": f"coreml-{variant_id}",
             "device": "neural_engine",
             "blend_mode": self.blend_mode,
-            "colormap": config.get("colormap", "inferno"),
+            "colormap": config.get("colormap", "viridis"),
             "backend": "coreml",
         }
 
@@ -319,7 +319,7 @@ class DepthEstimationSkill(TransformSkillBase):
             "model": model_name,
             "device": device_name,
             "blend_mode": self.blend_mode,
-            "colormap": config.get("colormap", "inferno"),
+            "colormap": config.get("colormap", "viridis"),
             "backend": "onnx",
             "execution_provider": active_ep,
         }
@@ -372,7 +372,7 @@ class DepthEstimationSkill(TransformSkillBase):
             "model": model_name,
             "device": "cuda",
             "blend_mode": self.blend_mode,
-            "colormap": config.get("colormap", "inferno"),
+            "colormap": config.get("colormap", "viridis"),
             "backend": "tensorrt",
         }
 
@@ -491,7 +491,7 @@ class DepthEstimationSkill(TransformSkillBase):
             "model": model_name,
             "device": self.device,
             "blend_mode": self.blend_mode,
-            "colormap": config.get("colormap", "inferno"),
+            "colormap": config.get("colormap", "viridis"),
             "backend": "pytorch",
         }
 
