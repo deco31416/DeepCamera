@@ -54,7 +54,7 @@
     },
     {
       "id": "yolo-detection-2026",
-      "name": "YOLO 2026 Object Detection",
+      "name": "YOLO 2026",
       "description": "State-of-the-art real-time object detection — 80+ COCO classes, bounding box overlays, multi-size model selection.",
       "version": "1.0.0",
       "category": "detection",
@@ -136,7 +136,7 @@
     },
     {
       "id": "depth-estimation",
-      "name": "Depth Estimation (Privacy)",
+      "name": "Depth Anything V2",
       "description": "Privacy-first depth map transforms — anonymize camera feeds with Depth Anything v2 while preserving spatial awareness.",
       "version": "1.1.0",
       "category": "privacy",
@@ -171,6 +171,7 @@
     {
       "id": "model-training",
       "name": "Model Training",
+      "disabled": true,
       "description": "Agent-driven YOLO fine-tuning — annotate, train, auto-export to TensorRT/CoreML/OpenVINO, deploy as detection skill.",
       "version": "1.0.0",
       "category": "training",
@@ -202,6 +203,7 @@
     {
       "id": "segmentation-sam2",
       "name": "SAM2 Segmentation",
+      "disabled": true,
       "description": "Interactive click-to-segment using Segment Anything 2 — pixel-perfect masks, point/box prompts, video tracking.",
       "version": "1.0.0",
       "category": "segmentation",
@@ -232,6 +234,7 @@
     {
       "id": "annotation-data",
       "name": "Annotation Data",
+      "disabled": true,
       "description": "Dataset annotation management — COCO labels, sequences, export, and Kaggle upload for Annotation Studio.",
       "version": "1.0.0",
       "category": "annotation",
