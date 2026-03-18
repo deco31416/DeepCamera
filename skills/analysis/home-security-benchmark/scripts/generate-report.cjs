@@ -625,11 +625,12 @@ function renderQuality() {
         html += '<div class="table-wrap"><table class="compare-table"><thead><tr><th>Metric</th>';
         for (const r of sel) html += '<th class="model-col">' + esc(modelShort(r.model)) + '<br><span style="font-weight:400;font-size:0.68rem">' + shortDate(r.timestamp) + '</span></th>';
         html += '</tr></thead><tbody>';
+        const hasVlm = sel.some(r => r.vlmTotal > 0);
         const hiRows = [
             ['Pass Rate', r => r.total > 0 ? pct(r.passed, r.total) + '%' : '—'],
             ['Score', r => r.passed + '/' + r.total],
             ['LLM Score', r => r.llmTotal > 0 ? (r.llmPassed || 0) + '/' + (r.llmTotal || 0) : '—'],
-            ['VLM Score', r => r.vlmTotal > 0 ? (r.vlmPassed || 0) + '/' + (r.vlmTotal || 0) : '—'],
+            ...(hasVlm ? [['VLM Score', r => r.vlmTotal > 0 ? (r.vlmPassed || 0) + '/' + (r.vlmTotal || 0) : '—']] : []),
             ['Failed', r => String(r.failed)],
             ['Time', r => fmt(r.timeMs / 1000) + 's'],
             ['Throughput', r => r.timeMs > 0 && r.tokens ? fmt(r.tokens / (r.timeMs / 1000)) + ' tok/s' : '—'],
