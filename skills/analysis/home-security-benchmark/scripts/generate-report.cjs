@@ -61,8 +61,9 @@ function generateReport(resultsDir = RESULTS_DIR, opts = {}) {
     }).filter(r => r.data);
 
     // Load fixture images for Vision tab (base64)
+    // Skip in live mode — saves ~43MB of base64 per regeneration, making per-test updates instant
     const fixtureImages = {};
-    if (fs.existsSync(FIXTURES_DIR)) {
+    if (!liveMode && fs.existsSync(FIXTURES_DIR)) {
         try {
             const frames = fs.readdirSync(FIXTURES_DIR).filter(f => /\.(png|jpg|jpeg)$/i.test(f));
             for (const f of frames) {
@@ -131,8 +132,8 @@ function buildHTML(allResults, fixtureImages, { liveMode = false, liveStatus = n
 
     const fixtureJSON = JSON.stringify(fixtureImages);
 
-    // Live mode: auto-refresh meta tag
-    const refreshMeta = liveMode ? '<meta http-equiv="refresh" content="5">' : '';
+    // Live mode: JS-based reload (stateful, preserves active tab + scroll)
+    const refreshMeta = '';
     const liveBannerHTML = liveMode ? buildLiveBanner(liveStatus) : '';
 
     return `<!DOCTYPE html>
@@ -434,7 +435,7 @@ function buildSidebar() {
     let html = '';
     for (const [family, runs] of Object.entries(groups)) {
         html += '<div class="model-group">';
-        html += '<div class="model-group-label" onclick="this.parentElement.classList.toggle(\'collapsed\')"><span class="arrow">▾</span> ' + esc(family) + ' <span style="color:var(--text-muted);font-weight:400">(' + runs.length + ')</span></div>';
+        html += '<div class="model-group-label" onclick="this.parentElement.classList.toggle(&#39;collapsed&#39;)"><span class="arrow">▾</span> ' + esc(family) + ' <span style="color:var(--text-muted);font-weight:400">(' + runs.length + ')</span></div>';
         html += '<div class="run-list">';
         for (const r of runs.reverse()) {
             const sel = selectedIndices.has(r._idx);
@@ -508,6 +509,14 @@ function renderPerformance() {
     html += statCard('Server Decode', fmt(srvDecode), 'tok/s', 'From llama-server /metrics');
     html += statCard('Total Time', fmt(totalTime / 1000), 's', run.total + ' tests');
     html += statCard('Throughput', fmt(tokPerSec), 'tok/s', fmtK(run.tokens || 0) + ' total tokens');
+
+    // GPU & Memory cards (from resource samples)
+    const res = perf?.resource;
+    if (res) {
+        html += statCard('GPU Utilization', res.gpu ? res.gpu.util + '' : '—', '%', res.gpu ? 'Renderer: ' + res.gpu.renderer + '% · Tiler: ' + res.gpu.tiler + '%' : 'MPS not available');
+        html += statCard('GPU Memory', res.gpu?.memUsedGB != null ? fmt(res.gpu.memUsedGB) : '—', 'GB', res.gpu?.memAllocGB != null ? 'Alloc: ' + fmt(res.gpu.memAllocGB) + ' GB' : 'MPS not available');
+        html += statCard('System Memory', fmt(res.sys?.usedGB), 'GB', 'of ' + fmt(res.sys?.totalGB) + ' GB total · Free: ' + fmt(res.sys?.freeGB) + ' GB');
+    }
     html += '</div>';
 
     // Comparison table if multiple selected
@@ -611,7 +620,36 @@ function renderQuality() {
 
     // Multi-run comparison
     if (sel.length > 1) {
-        html += '<div class="section-title">Quality Comparison</div>';
+        // High-level summary comparison
+        html += '<div class="section-title">Overall Comparison</div>';
+        html += '<div class="table-wrap"><table class="compare-table"><thead><tr><th>Metric</th>';
+        for (const r of sel) html += '<th class="model-col">' + esc(modelShort(r.model)) + '<br><span style="font-weight:400;font-size:0.68rem">' + shortDate(r.timestamp) + '</span></th>';
+        html += '</tr></thead><tbody>';
+        const hasVlm = sel.some(r => r.vlmTotal > 0);
+        const hiRows = [
+            ['Pass Rate', r => r.total > 0 ? pct(r.passed, r.total) + '%' : '—'],
+            ['Score', r => r.passed + '/' + r.total],
+            ['LLM Score', r => r.llmTotal > 0 ? (r.llmPassed || 0) + '/' + (r.llmTotal || 0) : '—'],
+            ...(hasVlm ? [['VLM Score', r => r.vlmTotal > 0 ? (r.vlmPassed || 0) + '/' + (r.vlmTotal || 0) : '—']] : []),
+            ['Failed', r => String(r.failed)],
+            ['Time', r => fmt(r.timeMs / 1000) + 's'],
+            ['Throughput', r => r.timeMs > 0 && r.tokens ? fmt(r.tokens / (r.timeMs / 1000)) + ' tok/s' : '—'],
+        ];
+        for (const [label, fn] of hiRows) {
+            html += '<tr><td>' + label + '</td>';
+            // Find best value for highlighting
+            const vals = sel.map(fn);
+            for (let i = 0; i < sel.length; i++) {
+                const isBest = label === 'Failed' ? vals[i] === String(Math.min(...sel.map(r => r.failed))) :
+                    label === 'Pass Rate' ? vals[i] === pct(Math.max(...sel.map(r => r.passed)), sel[0].total) + '%' : false;
+                html += '<td' + (isBest && sel.length > 1 ? ' style="color:var(--green);font-weight:600"' : '') + '>' + vals[i] + '</td>';
+            }
+            html += '</tr>';
+        }
+        html += '</tbody></table></div>';
+
+        // Per-suite breakdown
+        html += '<div class="section-title">Suite Comparison</div>';
         html += '<div class="table-wrap"><table class="compare-table"><thead><tr><th>Suite</th>';
         for (const r of sel) html += '<th class="model-col">' + esc(modelShort(r.model)) + '</th>';
         html += '</tr></thead><tbody>';
@@ -823,9 +861,15 @@ function getActiveTab() {
 
 function renderActiveTab() {
     const tab = getActiveTab();
-    if (tab === 'performance') renderPerformance();
-    else if (tab === 'quality') renderQuality();
-    else if (tab === 'vision') renderVision();
+    try {
+        if (tab === 'performance') renderPerformance();
+        else if (tab === 'quality') renderQuality();
+        else if (tab === 'vision') renderVision();
+    } catch (e) {
+        const panel = document.getElementById('tab-' + tab);
+        if (panel) panel.innerHTML = '<div style="color:var(--red);padding:2rem"><strong>Render error:</strong> ' + e.message + '<br><pre>' + e.stack + '</pre></div>';
+        console.error('Tab render error:', e);
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -838,6 +882,52 @@ function refresh() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// LIVE RELOAD (stateful — preserves tab + scroll)
+// ═══════════════════════════════════════════════════════════════════════════════
+const IS_LIVE = ${liveMode ? 'true' : 'false'};
+
+function saveState() {
+    try {
+        sessionStorage.setItem('_bench_tab', getActiveTab());
+        sessionStorage.setItem('_bench_scroll', String(window.scrollY));
+        sessionStorage.setItem('_bench_selected', JSON.stringify([...selectedIndices]));
+        sessionStorage.setItem('_bench_primary', String(primaryIndex));
+    } catch {}
+}
+
+function restoreState() {
+    try {
+        // Restore selection
+        const savedSel = sessionStorage.getItem('_bench_selected');
+        if (savedSel) {
+            const arr = JSON.parse(savedSel).filter(i => i >= 0 && i < ALL_RUNS.length);
+            if (arr.length > 0) { selectedIndices = new Set(arr); }
+        }
+        const savedPrimary = sessionStorage.getItem('_bench_primary');
+        if (savedPrimary != null) {
+            const pi = parseInt(savedPrimary);
+            if (pi >= 0 && pi < ALL_RUNS.length) primaryIndex = pi;
+        }
+        // Restore tab
+        const tab = sessionStorage.getItem('_bench_tab');
+        if (tab && tab !== 'performance') {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+            const tabEl = document.querySelector('.tab[data-tab="' + tab + '"]');
+            if (tabEl) tabEl.classList.add('active');
+            const panel = document.getElementById('tab-' + tab);
+            if (panel) panel.classList.add('active');
+        }
+        const scroll = parseInt(sessionStorage.getItem('_bench_scroll') || '0');
+        if (scroll > 0) setTimeout(() => window.scrollTo(0, scroll), 50);
+    } catch {}
+}
+
+if (IS_LIVE) {
+    setTimeout(() => { saveState(); location.reload(); }, 5000);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════════════════════════════
 document.getElementById('btn-export').addEventListener('click', exportMarkdown);
@@ -846,6 +936,7 @@ document.getElementById('btn-compare').addEventListener('click', () => {
     if (selectedIndices.size > 1) renderActiveTab();
 });
 
+restoreState();
 refresh();
 </script>
 </body>
@@ -865,15 +956,17 @@ function buildLiveBanner(status) {
     if (!status) {
         return `<div class="live-banner"><span class="live-dot"></span> Benchmark starting\u2026</div>`;
     }
-    const { suitesCompleted = 0, totalSuites = 0, currentSuite = '', startedAt = '' } = status;
+    const { suitesCompleted = 0, totalSuites = 0, currentSuite = '', currentTest = '', testsCompleted = 0, startedAt = '' } = status;
     const pct = totalSuites > 0 ? Math.round((suitesCompleted / totalSuites) * 100) : 0;
     const elapsed = startedAt ? Math.round((Date.now() - new Date(startedAt).getTime()) / 1000) : 0;
     const elapsedStr = elapsed > 60 ? Math.floor(elapsed / 60) + 'm ' + (elapsed % 60) + 's' : elapsed + 's';
+    const testInfo = currentTest ? ` — ✅ <em>${escHtml(currentTest)}</em>` : '';
     return `<div class="live-banner">
         <span class="live-dot"></span>
         <strong>LIVE</strong> — Suite ${suitesCompleted}/${totalSuites} (${pct}%)
-        ${currentSuite ? ' — <em>' + currentSuite + '</em>' : ''}
-        <span style="margin-left:auto;font-size:0.78rem">${elapsedStr} elapsed</span>
+        ${currentSuite ? ' — 🔧 <em>' + escHtml(currentSuite) + '</em>' : ''}
+        ${testInfo}
+        <span style="margin-left:auto;font-size:0.78rem">${testsCompleted} tests · ${elapsedStr} elapsed</span>
         <div class="live-progress"><div class="live-progress-bar" style="width:${pct}%"></div></div>
     </div>`;
 }

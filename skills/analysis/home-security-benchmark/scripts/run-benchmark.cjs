@@ -157,6 +157,7 @@ const results = {
     totals: { passed: 0, failed: 0, skipped: 0, total: 0, timeMs: 0 },
     tokenTotals: { prompt: 0, completion: 0, total: 0 },
     perfTotals: { ttftMs: [], decodeTokensPerSec: [], prefillTokensPerSec: null, serverDecodeTokensPerSec: null },
+    resourceSamples: [],  // GPU/memory snapshots taken after each suite
 };
 
 async function llmCall(messages, opts = {}) {
@@ -505,29 +506,110 @@ function assert(condition, msg) {
     if (!condition) throw new Error(msg || 'Assertion failed');
 }
 
+// ─── Resource Metrics (GPU/MPS + Memory) ─────────────────────────────────────
+
+/**
+ * Sample GPU (Apple Silicon MPS) utilization and system memory.
+ * Uses `ioreg` for GPU stats (no sudo needed).
+ */
+function sampleResourceMetrics() {
+    const os = require('os');
+    const sample = {
+        timestamp: new Date().toISOString(),
+        sys: {
+            totalGB: parseFloat((os.totalmem() / 1073741824).toFixed(1)),
+            freeGB: parseFloat((os.freemem() / 1073741824).toFixed(1)),
+            usedGB: parseFloat(((os.totalmem() - os.freemem()) / 1073741824).toFixed(1)),
+        },
+        process: {
+            rssMB: parseFloat((process.memoryUsage().rss / 1048576).toFixed(0)),
+        },
+        gpu: null,
+    };
+
+    // Apple Silicon GPU via ioreg (macOS only)
+    if (process.platform === 'darwin') {
+        try {
+            const out = execSync('ioreg -r -c AGXAccelerator 2>/dev/null', { encoding: 'utf8', timeout: 3000 });
+            const m = (key) => { const r = new RegExp('"' + key + '"=(\\d+)'); const match = out.match(r); return match ? parseInt(match[1]) : null; };
+            const deviceUtil = m('Device Utilization %');
+            const rendererUtil = m('Renderer Utilization %');
+            const tilerUtil = m('Tiler Utilization %');
+            const memUsed = m('In use system memory');
+            const memAlloc = m('Alloc system memory');
+            if (deviceUtil !== null) {
+                sample.gpu = {
+                    util: deviceUtil,
+                    renderer: rendererUtil,
+                    tiler: tilerUtil,
+                    memUsedGB: memUsed ? parseFloat((memUsed / 1073741824).toFixed(1)) : null,
+                    memAllocGB: memAlloc ? parseFloat((memAlloc / 1073741824).toFixed(1)) : null,
+                };
+            }
+        } catch { /* ioreg not available or timed out */ }
+    }
+
+    return sample;
+}
+
 // ─── Live progress: intermediate saves + report regeneration ────────────────
 let _liveReportOpened = false;
+let _runStartedAt = null;     // Set when runSuites() begins
+let _currentTestName = null;  // Set during test execution for live banner
+let _currentSuiteIndex = 0;   // Current suite index for live progress
+let _totalSuites = 0;         // Total number of suites
 
 /**
  * Save the current (in-progress) results to disk and regenerate the live report.
- * Called after each suite completes so the browser auto-refreshes with updated data.
+ * Called after each test completes so the browser auto-refreshes with updated data.
  */
-function saveLiveProgress(startedAt, suitesCompleted, totalSuites, nextSuiteName) {
+function saveLiveProgress(startedAt, suitesCompleted, totalSuites, nextSuiteName, currentTest) {
     try {
         fs.mkdirSync(RESULTS_DIR, { recursive: true });
 
         // Save current results as a live file (will be overwritten each time)
         const liveFile = path.join(RESULTS_DIR, '_live_progress.json');
+        // Include the in-progress suite so Quality/Vision tabs can render partial data
+        const liveSuites = [...results.suites];
+        if (currentSuite && currentSuite.tests.length > 0 && !results.suites.includes(currentSuite)) {
+            liveSuites.push(currentSuite);
+        }
         const liveResults = {
             ...results,
+            suites: liveSuites,
             _live: true,
-            _progress: { suitesCompleted, totalSuites, startedAt },
+            _progress: { suitesCompleted, totalSuites, startedAt, currentTest: currentTest || null },
         };
         fs.writeFileSync(liveFile, JSON.stringify(liveResults, null, 2));
 
         // Build a temporary index with just the live file
         const indexFile = path.join(RESULTS_DIR, 'index.json');
-        const liveIndex = [{
+
+        // Compute live performance summary from accumulated data
+        const ttftArr = [...results.perfTotals.ttftMs];
+        const decArr = [...results.perfTotals.decodeTokensPerSec];
+        const livePerfSummary = (ttftArr.length > 0 || decArr.length > 0) ? {
+            ttft: ttftArr.length > 0 ? {
+                avgMs: Math.round(ttftArr.reduce((a, b) => a + b, 0) / ttftArr.length),
+                p50Ms: [...ttftArr].sort((a, b) => a - b)[Math.floor(ttftArr.length * 0.5)],
+                p95Ms: [...ttftArr].sort((a, b) => a - b)[Math.floor(ttftArr.length * 0.95)],
+                samples: ttftArr.length,
+            } : null,
+            decode: decArr.length > 0 ? {
+                avgTokensPerSec: parseFloat((decArr.reduce((a, b) => a + b, 0) / decArr.length).toFixed(1)),
+                samples: decArr.length,
+            } : null,
+            server: {
+                prefillTokensPerSec: results.perfTotals.prefillTokensPerSec,
+                decodeTokensPerSec: results.perfTotals.serverDecodeTokensPerSec,
+            },
+            resource: results.resourceSamples.length > 0 ? results.resourceSamples[results.resourceSamples.length - 1] : null,
+        } : null;
+
+        // Preserve previous runs in index for comparison sidebar
+        let existingIndex = [];
+        try { existingIndex = JSON.parse(fs.readFileSync(indexFile, 'utf8')).filter(e => e.file !== '_live_progress.json'); } catch { }
+        const liveEntry = {
             file: '_live_progress.json',
             model: results.model.name || 'loading...',
             vlm: results.model.vlm || null,
@@ -540,32 +622,43 @@ function saveLiveProgress(startedAt, suitesCompleted, totalSuites, nextSuiteName
             vlmPassed: 0, vlmTotal: 0,
             timeMs: Date.now() - new Date(startedAt).getTime(),
             tokens: results.tokenTotals.total,
-            perfSummary: null,
-        }];
-        fs.writeFileSync(indexFile, JSON.stringify(liveIndex, null, 2));
+            perfSummary: livePerfSummary,
+        };
+        fs.writeFileSync(indexFile, JSON.stringify([...existingIndex, liveEntry], null, 2));
 
         // Regenerate report in live mode
         const reportScript = path.join(__dirname, 'generate-report.cjs');
         // Clear require cache to pick up any code changes
         delete require.cache[require.resolve(reportScript)];
         const { generateReport } = require(reportScript);
+        const testsCompleted = liveSuites.reduce((n, s) => n + s.tests.length, 0);
+        const testsTotal = liveSuites.reduce((n, s) => n + s.tests.length, 0) + (currentTest ? 0 : 0);
         const reportPath = generateReport(RESULTS_DIR, {
             liveMode: true,
             liveStatus: {
                 suitesCompleted,
                 totalSuites,
-                currentSuite: nextSuiteName || 'Finishing...',
+                currentSuite: currentSuite?.name || nextSuiteName || 'Finishing...',
+                currentTest: currentTest || null,
+                testsCompleted,
                 startedAt,
             },
         });
 
         // Open browser on first save (so user sees live progress from the start)
-        if (!_liveReportOpened && !NO_OPEN && !IS_SKILL_MODE && reportPath) {
-            try {
-                const openCmd = process.platform === 'darwin' ? 'open' : 'xdg-open';
-                execSync(`${openCmd} "${reportPath}"`, { stdio: 'ignore' });
-                log('  📊 Live report opened in browser (auto-refreshes every 5s)');
-            } catch { }
+        if (!_liveReportOpened && !NO_OPEN && reportPath) {
+            if (IS_SKILL_MODE) {
+                // Ask Aegis to open in its embedded browser window
+                emit({ event: 'open_report', reportPath });
+                log('  📊 Requested Aegis to open live report');
+            } else {
+                // Standalone: open in system browser
+                try {
+                    const openCmd = process.platform === 'darwin' ? 'open' : 'xdg-open';
+                    execSync(`${openCmd} "${reportPath}"`, { stdio: 'ignore' });
+                    log('  📊 Live report opened in browser (auto-refreshes every 5s)');
+                } catch { }
+            }
             _liveReportOpened = true;
         }
     } catch (err) {
@@ -575,9 +668,11 @@ function saveLiveProgress(startedAt, suitesCompleted, totalSuites, nextSuiteName
 }
 
 async function runSuites() {
-    const startedAt = new Date().toISOString();
+    _runStartedAt = new Date().toISOString();
+    _totalSuites = suites.length;
     for (let si = 0; si < suites.length; si++) {
         const s = suites[si];
+        _currentSuiteIndex = si;
         currentSuite = { name: s.name, tests: [], passed: 0, failed: 0, skipped: 0, timeMs: 0 };
         log(`\n${'─'.repeat(60)}`);
         log(`  ${s.name}`);
@@ -594,8 +689,16 @@ async function runSuites() {
 
         emit({ event: 'suite_end', suite: s.name, passed: currentSuite.passed, failed: currentSuite.failed, skipped: currentSuite.skipped, timeMs: currentSuite.timeMs });
 
-        // Live progress: save intermediate results + regenerate report after each suite
-        saveLiveProgress(startedAt, si + 1, suites.length, si + 1 < suites.length ? suites[si + 1]?.name : null);
+        // Sample resource metrics (GPU + memory) after each suite
+        const resourceSample = sampleResourceMetrics();
+        resourceSample.suite = s.name;
+        results.resourceSamples.push(resourceSample);
+
+        // Scrape server metrics after each suite so live perf cards update
+        await scrapeServerMetrics();
+
+        // Live progress: save after suite (also saved per-test, but suite boundary is a clean checkpoint)
+        saveLiveProgress(_runStartedAt, si + 1, suites.length, si + 1 < suites.length ? suites[si + 1]?.name : null);
     }
 }
 
@@ -641,6 +744,12 @@ async function test(name, fn) {
     currentSuite.timeMs += testResult.timeMs;
     currentSuite.tests.push(testResult);
     emit({ event: 'test_result', suite: currentSuite.name, test: name, status: testResult.status, timeMs: testResult.timeMs, detail: testResult.detail.slice(0, 120), tokens: testResult.tokens, perf: testResult.perf });
+
+    // Live progress: save after each test for real-time updates in commander center
+    if (_runStartedAt) {
+        _currentTestName = null; // Test just completed
+        saveLiveProgress(_runStartedAt, _currentSuiteIndex, _totalSuites, null, name);
+    }
 }
 
 function skip(name, reason) {
@@ -2357,7 +2466,10 @@ async function main() {
         vlmPassed, vlmTotal,
         timeMs,
         tokens: results.tokenTotals.total,
-        perfSummary: results.perfSummary || null,
+        perfSummary: {
+            ...(results.perfSummary || {}),
+            resource: results.resourceSamples?.length > 0 ? results.resourceSamples[results.resourceSamples.length - 1] : null,
+        },
     });
     fs.writeFileSync(indexFile, JSON.stringify(index, null, 2));
 
