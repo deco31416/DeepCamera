@@ -36,7 +36,9 @@
 
 </div>
 
-<video src="screenshots/aegis-benchmark-demo.mp4" autoplay loop muted playsinline width="100%"></video>
+<p align="center">
+<a href="https://youtu.be/BtHpenIO5WU"><img src="screenshots/aegis-benchmark-demo.gif" alt="Aegis AI Benchmark Demo — Local LLM home security on Apple Silicon (click for full video)" width="60%"></a>
+</p>
 
 ---
 
