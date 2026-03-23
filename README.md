@@ -169,6 +169,8 @@ Run it on your own hardware to know exactly where your setup stands.
 
 Running on a **Mac M1 Mini 8GB**: local Qwen3.5-4B scores **39/54** (72%), cloud GPT-5.2 scores **46/48** (96%), and the hybrid config reaches **53/54** (98%). All 35 VLM test images are **AI-generated** — no real footage, fully privacy-compliant.
 
+The benchmark supports multiple cloud LLM providers including **OpenAI**, **[MiniMax](https://www.minimaxi.com)** (M2.7, M2.5), and any OpenAI-compatible endpoint — set `AEGIS_LLM_API_TYPE=minimax` with your `MINIMAX_API_KEY` to benchmark MiniMax models against your local setup.
+
 📄 [Read the Paper](docs/paper/home-security-benchmark.pdf) · 🔬 [Run It Yourself](skills/analysis/home-security-benchmark/) · 📋 [Test Scenarios](skills/analysis/home-security-benchmark/fixtures/)
 
 ---
