@@ -6,6 +6,20 @@ params:
     default: llm
     description: "Which test suites to run: llm-only, vlm-only, or full"
 
+  - key: llmProvider
+    label: LLM Provider
+    type: select
+    options: [builtin, openai, minimax]
+    default: builtin
+    description: "LLM provider: builtin (local llama-server), openai, or minimax (MiniMax Cloud API)"
+
+  - key: minimaxModel
+    label: MiniMax Model
+    type: select
+    options: [MiniMax-M2.7, MiniMax-M2.7-highspeed, MiniMax-M2.5, MiniMax-M2.5-highspeed]
+    default: MiniMax-M2.7
+    description: "MiniMax model to benchmark (requires llmProvider=minimax and MINIMAX_API_KEY)"
+
   - key: noOpen
     label: Don't auto-open report
     type: boolean

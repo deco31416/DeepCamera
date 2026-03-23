@@ -49,6 +49,14 @@ node scripts/run-benchmark.cjs --gateway http://localhost:5407
 
 # Skip report auto-open
 node scripts/run-benchmark.cjs --no-open
+
+# Benchmark with MiniMax Cloud API
+AEGIS_LLM_API_TYPE=minimax MINIMAX_API_KEY=your-key \
+  node scripts/run-benchmark.cjs
+
+# MiniMax with a specific model
+AEGIS_LLM_API_TYPE=minimax MINIMAX_API_KEY=your-key AEGIS_LLM_MODEL=MiniMax-M2.7-highspeed \
+  node scripts/run-benchmark.cjs
 ```
 
 ## Configuration
@@ -59,10 +67,11 @@ node scripts/run-benchmark.cjs --no-open
 |----------|---------|-------------|
 | `AEGIS_GATEWAY_URL` | `http://localhost:5407` | LLM gateway (OpenAI-compatible) |
 | `AEGIS_LLM_URL` | — | Direct llama-server LLM endpoint |
-| `AEGIS_LLM_API_TYPE` | `openai` | LLM provider type (builtin, openai, etc.) |
+| `AEGIS_LLM_API_TYPE` | `openai` | LLM provider type (`builtin`, `openai`, `minimax`) |
 | `AEGIS_LLM_MODEL` | — | LLM model name |
 | `AEGIS_LLM_API_KEY` | — | API key for cloud LLM providers |
 | `AEGIS_LLM_BASE_URL` | — | Cloud provider base URL (e.g. `https://api.openai.com/v1`) |
+| `MINIMAX_API_KEY` | — | MiniMax API key (fallback when `AEGIS_LLM_API_KEY` is not set) |
 | `AEGIS_VLM_URL` | *(disabled)* | VLM server base URL |
 | `AEGIS_VLM_MODEL` | — | Loaded VLM model ID |
 | `AEGIS_SKILL_ID` | — | Skill identifier (enables skill mode) |
@@ -77,6 +86,8 @@ This skill includes a [`config.yaml`](config.yaml) that defines user-configurabl
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `mode` | select | `llm` | Which suites to run: `llm` (96 tests), `vlm` (47 tests), or `full` (143 tests) |
+| `llmProvider` | select | `builtin` | LLM provider: `builtin` (local), `openai`, or `minimax` |
+| `minimaxModel` | select | `MiniMax-M2.7` | MiniMax model to benchmark (requires `llmProvider=minimax`) |
 | `noOpen` | boolean | `false` | Skip auto-opening the HTML report in browser |
 
 Platform parameters like `AEGIS_GATEWAY_URL` and `AEGIS_VLM_URL` are auto-injected by Aegis — they are **not** in `config.yaml`. See [Aegis Skill Platform Parameters](../../../docs/skill-params.md) for the full platform contract.
@@ -141,5 +152,14 @@ Results are saved to `~/.aegis-ai/benchmarks/` as JSON. An HTML report with cros
 
 - Node.js ≥ 18
 - `npm install` (for `openai` SDK dependency)
-- Running LLM server (llama-server, OpenAI API, or any OpenAI-compatible endpoint)
+- Running LLM server (llama-server, OpenAI API, MiniMax Cloud API, or any OpenAI-compatible endpoint)
 - Optional: Running VLM server for scene analysis tests (47 tests)
+
+## Supported LLM Providers
+
+| Provider | API Type | Models | Notes |
+|----------|----------|--------|-------|
+| Local (llama-server) | `builtin` | Any GGUF model | Default — runs on your hardware |
+| OpenAI | `openai` | GPT-5.4, etc. | Requires `AEGIS_LLM_API_KEY` |
+| **MiniMax** | `minimax` | MiniMax-M2.7, M2.7-highspeed, M2.5, M2.5-highspeed | Auto-configured base URL, temp clamping [0, 1] |
+| Any OpenAI-compatible | — | — | Set `AEGIS_LLM_BASE_URL` + `AEGIS_LLM_API_KEY` |

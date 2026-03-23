@@ -63,10 +63,20 @@ Options:
   -h, --help      Show this help message
 
 Environment Variables (set by Aegis):
-  AEGIS_GATEWAY_URL   LLM gateway URL
-  AEGIS_VLM_URL       VLM server base URL
-  AEGIS_SKILL_ID      Skill identifier (enables skill mode)
-  AEGIS_SKILL_PARAMS  JSON params from skill config
+  AEGIS_GATEWAY_URL     LLM gateway URL
+  AEGIS_LLM_API_TYPE    LLM provider: builtin, openai, minimax
+  AEGIS_LLM_MODEL       LLM model name
+  AEGIS_LLM_API_KEY     API key for cloud providers
+  AEGIS_LLM_BASE_URL    Cloud provider base URL
+  AEGIS_VLM_URL         VLM server base URL
+  AEGIS_SKILL_ID        Skill identifier (enables skill mode)
+  AEGIS_SKILL_PARAMS    JSON params from skill config
+  MINIMAX_API_KEY       MiniMax API key (fallback for AEGIS_LLM_API_KEY)
+
+Providers:
+  minimax   MiniMax Cloud API (auto-configured, models: M2.7, M2.7-highspeed, M2.5, M2.5-highspeed)
+  openai    OpenAI API
+  builtin   Local llama-server (default)
 
 Tests: 131 total (96 LLM + 35 VLM) across 16 suites
     `.trim());
@@ -93,21 +103,55 @@ const FIXTURES_DIR = path.join(__dirname, '..', 'fixtures');
 // API type and model info from Aegis (or defaults for standalone)
 const LLM_API_TYPE = process.env.AEGIS_LLM_API_TYPE || 'openai';
 const LLM_MODEL = process.env.AEGIS_LLM_MODEL || '';
-const LLM_API_KEY = process.env.AEGIS_LLM_API_KEY || '';
+const LLM_API_KEY = process.env.AEGIS_LLM_API_KEY || process.env.MINIMAX_API_KEY || '';
 const LLM_BASE_URL = process.env.AEGIS_LLM_BASE_URL || '';
 const VLM_API_TYPE = process.env.AEGIS_VLM_API_TYPE || 'openai-compatible';
 const VLM_MODEL = process.env.AEGIS_VLM_MODEL || '';
+
+// ─── Provider Presets ────────────────────────────────────────────────────────
+// Auto-configure known cloud LLM providers by API type.
+// MiniMax uses an OpenAI-compatible API at https://api.minimax.io/v1
+const PROVIDER_PRESETS = {
+    minimax: {
+        baseUrl: 'https://api.minimax.io/v1',
+        defaultModel: 'MiniMax-M2.7',
+        models: ['MiniMax-M2.7', 'MiniMax-M2.7-highspeed', 'MiniMax-M2.5', 'MiniMax-M2.5-highspeed'],
+    },
+    openai: {
+        baseUrl: 'https://api.openai.com/v1',
+        defaultModel: '',
+        models: [],
+    },
+};
+
+const isMiniMaxProvider = LLM_API_TYPE === 'minimax'
+    || LLM_BASE_URL.includes('api.minimax.io')
+    || LLM_BASE_URL.includes('minimax');
 
 // ─── OpenAI SDK Clients ──────────────────────────────────────────────────────
 const OpenAI = require('openai');
 
 // Resolve LLM base URL — priority: cloud provider → direct llama-server → gateway
 const strip = (u) => u.replace(/\/v1\/?$/, '');
-const llmBaseUrl = LLM_BASE_URL
-    ? `${strip(LLM_BASE_URL)}/v1`
-    : LLM_URL
-        ? `${strip(LLM_URL)}/v1`
-        : `${GATEWAY_URL}/v1`;
+
+// Auto-resolve base URL for known providers (e.g. minimax → api.minimax.io)
+function resolveProviderBaseUrl() {
+    if (LLM_BASE_URL) return `${strip(LLM_BASE_URL)}/v1`;
+    const preset = PROVIDER_PRESETS[LLM_API_TYPE];
+    if (preset) return preset.baseUrl;
+    if (LLM_URL) return `${strip(LLM_URL)}/v1`;
+    return `${GATEWAY_URL}/v1`;
+}
+
+// Auto-resolve default model for known providers
+function resolveProviderModel() {
+    if (LLM_MODEL) return LLM_MODEL;
+    const preset = PROVIDER_PRESETS[LLM_API_TYPE];
+    return preset ? preset.defaultModel : '';
+}
+
+const llmBaseUrl = resolveProviderBaseUrl();
+const effectiveModel = resolveProviderModel();
 
 const llmClient = new OpenAI({
     apiKey: LLM_API_KEY || 'not-needed',  // Local servers don't require auth
@@ -167,7 +211,7 @@ async function llmCall(messages, opts = {}) {
         throw new Error(opts.vlm ? 'VLM client not configured' : 'LLM client not configured');
     }
 
-    const model = opts.model || (opts.vlm ? VLM_MODEL : LLM_MODEL) || undefined;
+    const model = opts.model || (opts.vlm ? VLM_MODEL : effectiveModel) || undefined;
     // For JSON-expected tests, use low temperature + top_p to encourage
     // direct JSON output without extended reasoning.
     // NOTE: Do NOT inject assistant prefill — Qwen3.5 rejects prefill
@@ -220,11 +264,17 @@ async function llmCall(messages, opts = {}) {
     // Determine the correct max-tokens parameter name:
     // - OpenAI cloud (GPT-5.4+): requires 'max_completion_tokens', rejects 'max_tokens'
     // - Local llama-server: requires 'max_tokens', may not understand 'max_completion_tokens'
-    const isCloudApi = !opts.vlm && (LLM_API_TYPE === 'openai' || LLM_BASE_URL.includes('openai.com') || LLM_BASE_URL.includes('api.anthropic'));
+    const isCloudApi = !opts.vlm && (LLM_API_TYPE === 'openai' || LLM_API_TYPE === 'minimax' || isMiniMaxProvider || LLM_BASE_URL.includes('openai.com') || LLM_BASE_URL.includes('api.anthropic'));
 
     // No max_tokens for any API — the streaming loop's 2000-token hard cap is the safety net.
     // Sending max_tokens to thinking models (Qwen3.5) starves actual output since
     // reasoning_content counts against the limit.
+
+    // MiniMax temperature clamping: API accepts [0, 1.0]
+    let temperature = opts.temperature;
+    if (isMiniMaxProvider && temperature !== undefined) {
+        temperature = Math.max(0, Math.min(1.0, temperature));
+    }
 
     // Build request params
     const params = {
@@ -234,8 +284,8 @@ async function llmCall(messages, opts = {}) {
         // llama-server crashes with "Failed to parse input" when stream_options is present)
         ...(isCloudApi && { stream_options: { include_usage: true } }),
         ...(model && { model }),
-        ...(opts.temperature !== undefined && { temperature: opts.temperature }),
-        ...(opts.expectJSON && opts.temperature === undefined && { temperature: 0.7 }),
+        ...(temperature !== undefined && { temperature }),
+        ...(opts.expectJSON && temperature === undefined && { temperature: isMiniMaxProvider ? 0.7 : 0.7 }),
         ...(opts.expectJSON && { top_p: 0.8 }),
         ...(opts.tools && { tools: opts.tools }),
     };
@@ -2320,13 +2370,9 @@ async function main() {
     log('║   Home Security AI Benchmark Suite  •  DeepCamera / SharpAI     ║');
     log('╚══════════════════════════════════════════════════════════════════╝');
     // Resolve the LLM endpoint that will actually be used
-    const effectiveLlmUrl = LLM_BASE_URL
-        ? LLM_BASE_URL.replace(/\/v1\/?$/, '')
-        : LLM_URL
-            ? LLM_URL.replace(/\/v1\/?$/, '')
-            : GATEWAY_URL;
+    const effectiveLlmUrl = llmBaseUrl.replace(/\/v1\/?$/, '');
 
-    log(`  LLM:      ${LLM_API_TYPE} @ ${effectiveLlmUrl}${LLM_MODEL ? ' → ' + LLM_MODEL : ''}`);
+    log(`  LLM:      ${LLM_API_TYPE} @ ${effectiveLlmUrl}${effectiveModel ? ' → ' + effectiveModel : ''}`);
     log(`  VLM:      ${VLM_URL || '(disabled — use --vlm URL to enable)'}${VLM_MODEL ? ' → ' + VLM_MODEL : ''}`);
     log(`  Results:  ${RESULTS_DIR}`);
     log(`  Mode:     ${IS_SKILL_MODE ? 'Aegis Skill' : 'Standalone'} (streaming, ${IDLE_TIMEOUT_MS / 1000}s idle timeout)`);
@@ -2335,7 +2381,7 @@ async function main() {
     // Healthcheck — ping the LLM endpoint via SDK
     try {
         const ping = await llmClient.chat.completions.create({
-            ...(LLM_MODEL && { model: LLM_MODEL }),
+            ...(effectiveModel && { model: effectiveModel }),
             messages: [{ role: 'user', content: 'ping' }],
         });
         results.model.name = ping.model || 'unknown';
