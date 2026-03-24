@@ -428,10 +428,18 @@ async function llmCall(messages, opts = {}) {
                     controller.abort();
                     break;
                 }
-                // If content is arriving, check it starts with JSON
-                if (opts.expectJSON && isContent && content.length >= 50) {
-                    const stripped = content.replace(/<think>[\s\S]*?<\/think>\s*/gi, '').trimStart();
-                    if (stripped.length >= 50 && !/^\s*[{\[]/.test(stripped)) {
+                // If content is arriving, check it starts with JSON.
+                // Be patient with thinking models: llama-server sends reasoning
+                // as plain text in delta.content (no <think> tags or separate
+                // reasoning field). Wait for enough content before deciding.
+                if (opts.expectJSON && isContent && content.length >= 200) {
+                    // Strip <think> blocks AND common plain-text reasoning prefixes
+                    // that thinking models (Qwen3.5, etc.) emit before JSON output
+                    let stripped = content.replace(/<think>[\s\S]*?<\/think>\s*/gi, '').trimStart();
+                    // Strip leading plain-text reasoning (models often start with
+                    // "Let me analyze...", "I need to...", followed by actual JSON)
+                    stripped = stripped.replace(/^(?:Let me|I need to|I'll|I will|First,|Okay,|Sure,|Alright,|Here's|Looking at|Analyzing)[\s\S]*?(?=\s*[{\[])/i, '').trimStart();
+                    if (stripped.length >= 200 && !/^\s*[{\[]/.test(stripped)) {
                         log(`    ⚠ Aborting: expected JSON but got: "${stripped.slice(0, 80)}…"`);
                         controller.abort();
                         break;
