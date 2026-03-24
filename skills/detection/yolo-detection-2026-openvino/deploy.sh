@@ -3,6 +3,11 @@
 #
 # Builds the Docker image locally and verifies device availability.
 # Called by Aegis skill-runtime-manager during installation.
+#
+# Exit codes:
+#   0 = success (hardware accelerator detected)
+#   1 = fatal error (Docker not found)
+#   2 = partial success (no accelerator detected, CPU fallback)
 
 set -euo pipefail
 
@@ -12,26 +17,29 @@ IMAGE_TAG="latest"
 LOG_PREFIX="[openvino-deploy]"
 
 log()  { echo "$LOG_PREFIX $*" >&2; }
-emit() { echo "$1"; }
+emit() { echo "$1"; }  # JSON to stdout for Aegis to parse
 
 # ─── Step 1: Check Docker ────────────────────────────────────────────────────
 
-DOCKER_CMD=""
-for cmd in docker podman; do
-    if command -v "$cmd" &>/dev/null; then
-        DOCKER_CMD="$cmd"
-        break
-    fi
-done
+find_docker() {
+    for cmd in docker podman; do
+        if command -v "$cmd" &>/dev/null; then
+            echo "$cmd"
+            return 0
+        fi
+    done
+    return 1
+}
 
-if [ -z "$DOCKER_CMD" ]; then
-    log "ERROR: Docker (or Podman) not found."
+DOCKER_CMD=$(find_docker) || {
+    log "ERROR: Docker (or Podman) not found. Install Docker Desktop 4.35+ and retry."
     emit '{"event": "error", "stage": "docker", "message": "Docker not found. Install Docker Desktop 4.35+"}'
     exit 1
-fi
+}
 
+# Verify Docker is running
 if ! "$DOCKER_CMD" info &>/dev/null; then
-    log "ERROR: Docker daemon is not running."
+    log "ERROR: Docker daemon is not running. Start Docker Desktop and retry."
     emit '{"event": "error", "stage": "docker", "message": "Docker daemon not running"}'
     exit 1
 fi
@@ -43,6 +51,7 @@ emit "{\"event\": \"progress\", \"stage\": \"docker\", \"message\": \"Docker rea
 # ─── Step 2: Detect platform for device access ──────────────────────────────
 
 PLATFORM="$(uname -s)"
+ARCH="$(uname -m)"
 DEVICE_FLAGS=""
 
 case "$PLATFORM" in
@@ -51,10 +60,10 @@ case "$PLATFORM" in
         [ -d /dev/dri ] && DEVICE_FLAGS="--device /dev/dri"
         [ -d /dev/bus/usb ] && DEVICE_FLAGS="$DEVICE_FLAGS --device /dev/bus/usb"
         [ -z "$DEVICE_FLAGS" ] && DEVICE_FLAGS="--privileged"
-        log "Platform: Linux — devices: $DEVICE_FLAGS"
+        log "Platform: Linux ($ARCH) — devices: $DEVICE_FLAGS"
         ;;
     Darwin)
-        log "Platform: macOS — Docker Desktop USB/IP for NCS2, CPU fallback available"
+        log "Platform: macOS ($ARCH) — Docker Desktop USB/IP for NCS2, CPU fallback available"
         DEVICE_FLAGS="--privileged"
         ;;
     MINGW*|MSYS*|CYGWIN*)
@@ -62,16 +71,17 @@ case "$PLATFORM" in
         DEVICE_FLAGS="--privileged"
         ;;
     *)
+        log "Platform: Unknown ($PLATFORM) — attempting with --privileged"
         DEVICE_FLAGS="--privileged"
         ;;
 esac
 
-emit "{\"event\": \"progress\", \"stage\": \"platform\", \"message\": \"Platform: $PLATFORM\"}"
+emit "{\"event\": \"progress\", \"stage\": \"platform\", \"message\": \"Platform: $PLATFORM/$ARCH\"}"
 
 # ─── Step 3: Build Docker image ─────────────────────────────────────────────
 
 log "Building Docker image: $IMAGE_NAME:$IMAGE_TAG ..."
-emit '{"event": "progress", "stage": "build", "message": "Building Docker image..."}'
+emit '{"event": "progress", "stage": "build", "message": "Building Docker image (this may take a few minutes)..."}'
 
 if "$DOCKER_CMD" build -t "$IMAGE_NAME:$IMAGE_TAG" "$SKILL_DIR" 2>&1 | while read -r line; do
     log "$line"
@@ -84,24 +94,28 @@ else
     exit 1
 fi
 
-# ─── Step 4: Probe devices ──────────────────────────────────────────────────
+# ─── Step 4: Probe for OpenVINO devices ─────────────────────────────────────
 
 log "Probing OpenVINO devices..."
 emit '{"event": "progress", "stage": "probe", "message": "Checking OpenVINO devices..."}'
 
+ACCEL_FOUND=false
 PROBE_OUTPUT=$("$DOCKER_CMD" run --rm $DEVICE_FLAGS \
     "$IMAGE_NAME:$IMAGE_TAG" python3 scripts/device_probe.py 2>/dev/null) || true
 
 if echo "$PROBE_OUTPUT" | grep -q '"accelerator_found": true'; then
+    ACCEL_FOUND=true
     log "Hardware accelerator detected (GPU/NCS2)"
-    emit '{"event": "progress", "stage": "probe", "message": "Hardware accelerator detected"}'
+    emit '{"event": "progress", "stage": "probe", "message": "Hardware accelerator detected (GPU/NCS2)"}'
 else
-    log "No accelerator — CPU mode available"
-    emit '{"event": "progress", "stage": "probe", "message": "CPU mode (no GPU/NCS2 detected)"}'
+    log "WARNING: No accelerator detected — skill will run in CPU fallback mode"
+    emit '{"event": "progress", "stage": "probe", "message": "No GPU/NCS2 detected — CPU fallback available"}'
 fi
 
 # ─── Step 5: Build run command ───────────────────────────────────────────────
 
+# The run command Aegis will use to launch the skill
+# stdin/stdout pipe (-i), auto-remove (--rm), shared volume
 RUN_CMD="$DOCKER_CMD run -i --rm $DEVICE_FLAGS"
 RUN_CMD="$RUN_CMD -v /tmp/aegis_detection:/tmp/aegis_detection"
 RUN_CMD="$RUN_CMD --env AEGIS_SKILL_ID --env AEGIS_SKILL_PARAMS --env PYTHONUNBUFFERED=1"
@@ -109,6 +123,14 @@ RUN_CMD="$RUN_CMD $IMAGE_NAME:$IMAGE_TAG"
 
 log "Runtime command: $RUN_CMD"
 
-emit "{\"event\": \"complete\", \"status\": \"success\", \"run_command\": \"$RUN_CMD\", \"message\": \"OpenVINO skill installed\"}"
-log "Done!"
-exit 0
+# ─── Step 6: Complete ────────────────────────────────────────────────────────
+
+if [ "$ACCEL_FOUND" = true ]; then
+    emit "{\"event\": \"complete\", \"status\": \"success\", \"accelerator_found\": true, \"run_command\": \"$RUN_CMD\", \"message\": \"OpenVINO skill installed — hardware accelerator ready\"}"
+    log "Done! Hardware accelerator ready."
+    exit 0
+else
+    emit "{\"event\": \"complete\", \"status\": \"partial\", \"accelerator_found\": false, \"run_command\": \"$RUN_CMD\", \"message\": \"OpenVINO skill installed — no accelerator detected (CPU fallback)\"}"
+    log "Done with warning: no accelerator detected. Connect Intel GPU/NCS2 and restart."
+    exit 2
+fi

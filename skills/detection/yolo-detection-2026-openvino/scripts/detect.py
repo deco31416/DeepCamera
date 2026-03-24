@@ -167,16 +167,17 @@ class OpenVINODetector:
             self.device_name = "AUTO"
 
     def detect_frame(self, frame_path):
-        """Run detection on a single frame."""
+        """Run detection on a single frame. Returns list of detection dicts."""
         t0 = time.perf_counter()
 
         if not os.path.exists(frame_path):
             log(f"Frame not found: {frame_path}")
             return [], {}
 
-        t_pre = time.perf_counter()
+        t_read = time.perf_counter()
 
         # Run inference via Ultralytics (handles OpenVINO internally)
+        t_pre = time.perf_counter()
         results = self.model(
             frame_path,
             conf=self.confidence,
@@ -206,7 +207,8 @@ class OpenVINODetector:
         t_post = time.perf_counter()
 
         timings = {
-            "preprocess": round((t_pre - t0) * 1000, 2),
+            "file_read": round((t_read - t0) * 1000, 2),
+            "preprocess": round((t_pre - t_read) * 1000, 2),
             "inference": round((t_infer - t_pre) * 1000, 2),
             "postprocess": round((t_post - t_infer) * 1000, 2),
             "total": round((t_post - t0) * 1000, 2),
@@ -274,6 +276,7 @@ def main():
         try:
             msg = json.loads(line)
         except json.JSONDecodeError:
+            log(f"Invalid JSON: {line[:100]}")
             continue
 
         if msg.get("command") == "stop" or msg.get("event") == "stop":
@@ -284,6 +287,17 @@ def main():
             frame_path = msg.get("frame_path", "")
             camera_id = msg.get("camera_id", "")
             timestamp = msg.get("timestamp", "")
+
+            if not frame_path or not os.path.exists(frame_path):
+                log(f"Frame not found: {frame_path}")
+                emit_json({
+                    "event": "detections",
+                    "frame_id": frame_id,
+                    "camera_id": camera_id,
+                    "timestamp": timestamp,
+                    "objects": [],
+                })
+                continue
 
             objects, timings = detector.detect_frame(frame_path)
 
