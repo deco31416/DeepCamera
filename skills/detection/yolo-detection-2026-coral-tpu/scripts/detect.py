@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Coral TPU Object Detection — JSONL stdin/stdout protocol
-Runs inside Docker container with Edge TPU access.
+Uses ai-edge-litert (LiteRT) with Edge TPU delegate for hardware acceleration.
 Same protocol as yolo-detection-2026/scripts/detect.py.
 
 Communication:
@@ -20,21 +20,32 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-# ─── Edge TPU imports ─────────────────────────────────────────────────────────
-try:
-    from pycoral.adapters import common
-    from pycoral.adapters import detect
-    from pycoral.utils.edgetpu import list_edge_tpus, make_interpreter
-    HAS_EDGETPU = True
-except ImportError:
-    HAS_EDGETPU = False
-    sys.stderr.write("[coral-detect] WARNING: pycoral not available, running in CPU-fallback mode\n")
+# ─── LiteRT imports (replaces archived pycoral + tflite-runtime) ─────────────
+# ai-edge-litert is the modern successor to tflite-runtime, supporting
+# Python 3.9–3.13 on all platforms. The Edge TPU is accessed via the
+# libedgetpu delegate (installed separately as a system library).
+
+HAS_LITERT = False
+HAS_EDGETPU_DELEGATE = False
 
 try:
-    import tflite_runtime.interpreter as tflite
-    HAS_TFLITE = True
+    from ai_edge_litert import interpreter as litert
+    HAS_LITERT = True
 except ImportError:
-    HAS_TFLITE = False
+    sys.stderr.write("[coral-detect] WARNING: ai-edge-litert not installed\n")
+
+# Determine the correct delegate library name per platform
+def _edgetpu_lib_name():
+    """Return the platform-specific libedgetpu shared library name."""
+    import platform
+    system = platform.system()
+    if system == "Linux":
+        return "libedgetpu.so.1"
+    elif system == "Darwin":
+        return "libedgetpu.1.dylib"
+    elif system == "Windows":
+        return "edgetpu.dll"
+    return "libedgetpu.so.1"
 
 
 # ─── COCO class names (80 classes) ───────────────────────────────────────────
@@ -89,14 +100,12 @@ class PerfTracker:
 
 
 class CoralDetector:
-    """Edge TPU object detector using pycoral."""
+    """Edge TPU object detector using ai-edge-litert with libedgetpu delegate."""
 
     def __init__(self, params):
         self.params = params
         self.confidence = float(params.get("confidence", 0.5))
         self.input_size = int(params.get("input_size", 320))
-        self.tpu_device = params.get("tpu_device", "auto")
-        self.clock_speed = params.get("clock_speed", "standard")
         self.interpreter = None
         self.tpu_count = 0
 
@@ -112,6 +121,8 @@ class CoralDetector:
         script_dir = Path(__file__).parent.parent / "models"
 
         for d in [model_dir, script_dir]:
+            if not d.exists():
+                continue
             for pattern in ["*_edgetpu.tflite", "*.tflite"]:
                 matches = list(d.glob(pattern))
                 if matches:
@@ -121,62 +132,50 @@ class CoralDetector:
 
     def _load_model(self):
         """Load model onto Edge TPU (or CPU fallback)."""
+        if not HAS_LITERT:
+            log("FATAL: ai-edge-litert not available. pip install ai-edge-litert")
+            emit_json({"event": "error", "message": "ai-edge-litert not installed", "retriable": False})
+            sys.exit(1)
+
         model_path = self._find_model_path()
         if not model_path:
-            log("ERROR: No .tflite model found in /app/models/")
+            log("ERROR: No .tflite model found in models/")
             emit_json({"event": "error", "message": "No Edge TPU model found", "retriable": False})
             sys.exit(1)
 
-        # Enumerate TPUs
-        if HAS_EDGETPU:
-            tpus = list_edge_tpus()
-            self.tpu_count = len(tpus)
-            log(f"Found {self.tpu_count} Edge TPU(s): {tpus}")
-
-            if self.tpu_count == 0:
-                log("WARNING: No Edge TPU detected — falling back to CPU TFLite")
-                self._load_cpu_fallback(model_path)
-                return
-
-            # Select TPU device
-            device_idx = None
-            if self.tpu_device != "auto":
-                device_idx = int(self.tpu_device)
-                if device_idx >= self.tpu_count:
-                    log(f"WARNING: TPU index {device_idx} not available, using auto")
-                    device_idx = None
-
-            try:
-                if device_idx is not None:
-                    device_str = f":{ device_idx}"
-                    self.interpreter = make_interpreter(model_path, device=device_str)
-                else:
-                    self.interpreter = make_interpreter(model_path)
-                self.interpreter.allocate_tensors()
-                self.device_name = "coral"
-                log(f"Loaded model on Edge TPU: {model_path}")
-            except Exception as e:
-                log(f"ERROR loading on Edge TPU: {e}, falling back to CPU")
-                self._load_cpu_fallback(model_path)
-        else:
+        # Try loading with Edge TPU delegate
+        edgetpu_lib = _edgetpu_lib_name()
+        try:
+            delegate = litert.load_delegate(edgetpu_lib)
+            self.interpreter = litert.Interpreter(
+                model_path=model_path,
+                experimental_delegates=[delegate],
+            )
+            self.interpreter.allocate_tensors()
+            self.device_name = "coral"
+            self.tpu_count = 1
+            log(f"Loaded model on Edge TPU: {model_path}")
+        except (ValueError, OSError) as e:
+            log(f"Edge TPU delegate not available: {e}")
+            log("Falling back to CPU inference")
             self._load_cpu_fallback(model_path)
 
     def _load_cpu_fallback(self, model_path):
-        """Fallback to CPU-only TFLite interpreter."""
-        if not HAS_TFLITE:
-            log("FATAL: Neither pycoral nor tflite-runtime available")
-            emit_json({"event": "error", "message": "No inference runtime available", "retriable": False})
-            sys.exit(1)
-
+        """Fallback to CPU-only LiteRT interpreter."""
         # Use a non-edgetpu model if available
         cpu_path = model_path.replace("_edgetpu.tflite", ".tflite")
         if not os.path.exists(cpu_path):
-            cpu_path = model_path  # Try with edgetpu model (may fail)
+            cpu_path = model_path
 
-        self.interpreter = tflite.Interpreter(model_path=cpu_path)
-        self.interpreter.allocate_tensors()
-        self.device_name = "cpu"
-        log(f"Loaded model on CPU: {cpu_path}")
+        try:
+            self.interpreter = litert.Interpreter(model_path=cpu_path)
+            self.interpreter.allocate_tensors()
+            self.device_name = "cpu"
+            log(f"Loaded model on CPU: {cpu_path}")
+        except Exception as e:
+            log(f"FATAL: Cannot load model: {e}")
+            emit_json({"event": "error", "message": f"Cannot load model: {e}", "retriable": False})
+            sys.exit(1)
 
     def detect_frame(self, frame_path):
         """Run detection on a single frame. Returns list of detection dicts."""
@@ -207,68 +206,43 @@ class CoralDetector:
         self.interpreter.invoke()
         t_infer = time.perf_counter()
 
-        # Parse output — pycoral detect API if available
+        # Parse output tensors (works for both Edge TPU and CPU)
         objects = []
-        if HAS_EDGETPU and self.device_name == "coral":
-            try:
-                raw_detections = detect.get_objects(
-                    self.interpreter, score_threshold=self.confidence
-                )
-                for det in raw_detections:
-                    class_id = det.id
-                    if class_id < len(COCO_CLASSES):
-                        class_name = COCO_CLASSES[class_id]
-                    else:
-                        class_name = f"class_{class_id}"
+        output_details = self.interpreter.get_output_details()
 
-                    if self.target_classes and class_name not in self.target_classes:
-                        continue
+        if len(output_details) >= 4:
+            # SSD MobileNet-style output: boxes, classes, scores, count
+            boxes = self.interpreter.get_tensor(output_details[0]["index"])[0]
+            classes = self.interpreter.get_tensor(output_details[1]["index"])[0]
+            scores = self.interpreter.get_tensor(output_details[2]["index"])[0]
+            count = int(self.interpreter.get_tensor(output_details[3]["index"])[0])
 
-                    bbox = det.bbox
-                    # Scale bbox from model input coords to original image coords
-                    x_min = int(bbox.xmin * orig_w / w)
-                    y_min = int(bbox.ymin * orig_h / h)
-                    x_max = int(bbox.xmax * orig_w / w)
-                    y_max = int(bbox.ymax * orig_h / h)
+            for i in range(min(count, 25)):
+                score = float(scores[i])
+                if score < self.confidence:
+                    continue
+                class_id = int(classes[i])
+                if class_id < len(COCO_CLASSES):
+                    class_name = COCO_CLASSES[class_id]
+                else:
+                    class_name = f"class_{class_id}"
 
-                    objects.append({
-                        "class": class_name,
-                        "confidence": round(float(det.score), 3),
-                        "bbox": [x_min, y_min, x_max, y_max]
-                    })
-            except Exception as e:
-                log(f"ERROR parsing detections: {e}")
-        else:
-            # CPU fallback: manual output parsing
-            output_details = self.interpreter.get_output_details()
-            if len(output_details) >= 4:
-                boxes = self.interpreter.get_tensor(output_details[0]["index"])[0]
-                classes = self.interpreter.get_tensor(output_details[1]["index"])[0]
-                scores = self.interpreter.get_tensor(output_details[2]["index"])[0]
-                count = int(self.interpreter.get_tensor(output_details[3]["index"])[0])
+                if self.target_classes and class_name not in self.target_classes:
+                    continue
 
-                for i in range(min(count, 25)):
-                    score = float(scores[i])
-                    if score < self.confidence:
-                        continue
-                    class_id = int(classes[i])
-                    if class_id < len(COCO_CLASSES):
-                        class_name = COCO_CLASSES[class_id]
-                    else:
-                        class_name = f"class_{class_id}"
-
-                    if self.target_classes and class_name not in self.target_classes:
-                        continue
-
-                    y1, x1, y2, x2 = boxes[i]
-                    objects.append({
-                        "class": class_name,
-                        "confidence": round(score, 3),
-                        "bbox": [
-                            int(x1 * orig_w), int(y1 * orig_h),
-                            int(x2 * orig_w), int(y2 * orig_h)
-                        ]
-                    })
+                y1, x1, y2, x2 = boxes[i]
+                objects.append({
+                    "class": class_name,
+                    "confidence": round(score, 3),
+                    "bbox": [
+                        int(x1 * orig_w), int(y1 * orig_h),
+                        int(x2 * orig_w), int(y2 * orig_h)
+                    ]
+                })
+        elif len(output_details) >= 1:
+            # YOLO-style output: single tensor with [N, 6] or similar
+            output = self.interpreter.get_tensor(output_details[0]["index"])
+            log(f"Single-output model, shape: {output.shape}")
 
         t_post = time.perf_counter()
 
@@ -319,6 +293,7 @@ def main():
         "model": "yolo26n_edgetpu",
         "device": detector.device_name,
         "format": "edgetpu_tflite" if detector.device_name == "coral" else "tflite_cpu",
+        "runtime": "ai-edge-litert",
         "tpu_count": detector.tpu_count,
         "classes": len(COCO_CLASSES),
         "input_size": detector.input_size,
