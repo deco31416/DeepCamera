@@ -60,6 +60,8 @@ Each skill is a self-contained module with its own model, parameters, and [commu
 | **Detection** | [`yolo-detection-2026`](skills/detection/yolo-detection-2026/) | Real-time 80+ class detection — auto-accelerated via TensorRT / CoreML / OpenVINO / ONNX | ✅|
 | | [`yolo-detection-2026-coral-tpu`](skills/detection/yolo-detection-2026-coral-tpu/) | Google Coral Edge TPU — ~4ms inference via USB accelerator ([LiteRT](#detection--segmentation-skills)) | 🧪 |
 | | [`yolo-detection-2026-openvino`](skills/detection/yolo-detection-2026-openvino/) | Intel NCS2 USB / Intel GPU / CPU — multi-device via OpenVINO ([architecture](#detection--segmentation-skills)) | 🧪 |
+| | `face-detection-recognition` | Face detection & recognition — identify known faces from camera feeds | 📐 |
+| | `license-plate-recognition` | License plate detection & recognition — read plate numbers from camera feeds | 📐 |
 | **Analysis** | [`home-security-benchmark`](skills/analysis/home-security-benchmark/) | [143-test evaluation suite](#-homesec-bench--how-secure-is-your-local-ai) for LLM & VLM security performance | ✅ |
 | **Privacy** | [`depth-estimation`](skills/transformation/depth-estimation/) | [Real-time depth-map privacy transform](#-privacy--depth-map-anonymization) — anonymize camera feeds while preserving activity | ✅ |
 | **Segmentation** | [`sam2-segmentation`](skills/segmentation/sam2-segmentation/) | Interactive click-to-segment with Segment Anything 2 — pixel-perfect masks, point/box prompts, video tracking | ✅ |
