@@ -101,6 +101,54 @@
       ]
     },
     {
+      "id": "yolo-detection-2026-coral-tpu",
+      "name": "YOLO 2026 Coral TPU",
+      "description": "Google Coral Edge TPU — real-time object detection with LiteRT (INT8, ~4ms inference at 320×320).",
+      "version": "2.0.0",
+      "category": "detection",
+      "path": "skills/detection/yolo-detection-2026-coral-tpu",
+      "tags": [
+        "detection",
+        "yolo",
+        "coral",
+        "edge-tpu",
+        "litert",
+        "real-time",
+        "coco"
+      ],
+      "platforms": [
+        "linux-x64",
+        "linux-arm64",
+        "darwin-arm64",
+        "darwin-x64",
+        "win-x64"
+      ],
+      "requirements": {
+        "python": ">=3.9",
+        "system": "libedgetpu",
+        "hardware": "Google Coral USB Accelerator"
+      },
+      "capabilities": [
+        "live_detection",
+        "bbox_overlay"
+      ],
+      "ui_unlocks": [
+        "detection_overlay",
+        "detection_results"
+      ],
+      "fps_presets": [
+        0.2,
+        0.5,
+        1,
+        3,
+        5,
+        15
+      ],
+      "model_sizes": [
+        "nano"
+      ]
+    },
+    {
       "id": "camera-claw",
       "name": "Camera Claw",
       "description": "Security camera for your AI agent — sandbox, record, and monitor OpenClaw activity.",
