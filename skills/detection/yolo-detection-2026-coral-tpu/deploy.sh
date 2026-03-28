@@ -28,11 +28,11 @@ ask_sudo() {
     
     # Fast path: If passwordless sudo works, execute immediately.
     if sudo -n true 2>/dev/null; then
-        eval "sudo $cmd"
+        eval "sudo bash -c \"$cmd\""
         return $?
     fi
 
-    if eval "sudo $cmd"; then
+    if eval "sudo bash -c \"$cmd\""; then
         return 0
     else
         echo ""
