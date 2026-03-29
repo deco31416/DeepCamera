@@ -58,7 +58,7 @@ echo {"event": "progress", "stage": "platform", "message": "A UAC prompt will ap
 REM Run install.bat elevated and wait for it to complete.
 REM The '<nul' suppresses the clock-speed interactive prompt (uses the default: standard).
 powershell -NoProfile -Command ^
-  "Start-Process -FilePath 'cmd.exe' -ArgumentList '/c install.bat <nul' -Verb RunAs -Wait"
+  "Start-Process -FilePath 'cmd.exe' -ArgumentList '/c install.bat <nul' -WorkingDirectory '%TMP_DIR%\edgetpu_runtime' -Verb RunAs -Wait"
 
 if %errorlevel% neq 0 (
     echo.
@@ -212,5 +212,5 @@ if "!TPU_FOUND!"=="true" (
     exit /b 0
 ) else (
     echo {"event": "complete", "status": "partial", "tpu_found": false, "message": "Coral TPU skill installed. Plug in your Coral USB Accelerator to enable hardware acceleration."}
-    exit /b 2
+    exit /b 0
 )

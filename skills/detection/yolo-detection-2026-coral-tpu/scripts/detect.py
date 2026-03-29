@@ -232,6 +232,18 @@ class CoralDetector:
         # Try loading with Edge TPU delegate
         edgetpu_lib = _edgetpu_lib_name()
         try:
+            # Squelch __del__ AttributeError bugs in ai-edge-litert when delegate fails to load
+            if hasattr(litert, 'Delegate'):
+                original_del = getattr(litert.Delegate, '__del__', None)
+                if original_del and not hasattr(litert.Delegate, '_patched_del'):
+                    def safe_del(self):
+                        try:
+                            original_del(self)
+                        except AttributeError:
+                            pass
+                    litert.Delegate.__del__ = safe_del
+                    litert.Delegate._patched_del = True
+
             delegate = litert.load_delegate(edgetpu_lib)
             self.interpreter = litert.Interpreter(
                 model_path=model_path,
