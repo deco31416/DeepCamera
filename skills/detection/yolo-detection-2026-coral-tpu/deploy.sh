@@ -36,13 +36,13 @@ ask_sudo() {
         return 0
     else
         echo ""
-        echo -e "\033[1;31m[MANUAL SETUP REQUIRED]\033[0m Sudo prompt was skipped or user aborted."
-        echo "Please execute the following fragile instructions manually in a global OS terminal:"
+        echo -e "\033[1;31m[ERROR]\033[0m Sudo command failed or user aborted the prompt."
+        echo "Please execute the following instructions manually in a terminal:"
         echo ""
         echo -e "\033[1;36m$manual\033[0m"
         echo ""
         echo "Once completed, re-run this deployment."
-        emit '{"event": "error", "stage": "platform", "message": "Manual OS setup required (sudo skipped)"}'
+        emit '{"event": "error", "stage": "platform", "message": "Manual OS setup required (sudo failed)"}'
         exit 1
     fi
 }
@@ -80,8 +80,8 @@ elif [ "$PLATFORM" = "Darwin" ]; then
         MANUAL_MAC="curl -sSLO https://github.com/feranick/libedgetpu/releases/download/16.0TF2.19.1-1/libedgetpu-16.0-tf2.19.1-1_MacOS_Silicon.zip
 unzip -q -o libedgetpu-16.0-tf2.19.1-1_MacOS_Silicon.zip
 sudo mkdir -p /usr/local/lib /opt/homebrew/lib
-sudo cp libedgetpu.1.dylib /usr/local/lib/
-sudo cp libedgetpu.1.dylib /opt/homebrew/lib/
+sudo cp libedgetpu-16.0-tf2.19.1-1_MacOS_Silicon/direct/darwin_arm64/libedgetpu.1.dylib /usr/local/lib/
+sudo cp libedgetpu-16.0-tf2.19.1-1_MacOS_Silicon/direct/darwin_arm64/libedgetpu.1.dylib /opt/homebrew/lib/
 rm -rf libedgetpu*"
 
         log "Downloading Apple Silicon arm64 driver payload..."
@@ -89,7 +89,7 @@ rm -rf libedgetpu*"
         cd "$TMP_DIR"
         curl -sSLO https://github.com/feranick/libedgetpu/releases/download/16.0TF2.19.1-1/libedgetpu-16.0-tf2.19.1-1_MacOS_Silicon.zip
         unzip -q -o libedgetpu-16.0-tf2.19.1-1_MacOS_Silicon.zip
-        ask_sudo "mkdir -p /usr/local/lib /opt/homebrew/lib && cp libedgetpu.1.dylib /usr/local/lib/ && cp libedgetpu.1.dylib /opt/homebrew/lib/" "Install libedgetpu.1.dylib to /usr/local/lib and /opt/homebrew/lib" "$MANUAL_MAC"
+        ask_sudo "mkdir -p /usr/local/lib /opt/homebrew/lib && cp libedgetpu-16.0-tf2.19.1-1_MacOS_Silicon/direct/darwin_arm64/libedgetpu.1.dylib /usr/local/lib/ && cp libedgetpu-16.0-tf2.19.1-1_MacOS_Silicon/direct/darwin_arm64/libedgetpu.1.dylib /opt/homebrew/lib/" "Install libedgetpu.1.dylib to /usr/local/lib and /opt/homebrew/lib" "$MANUAL_MAC"
         cd "$SKILL_DIR"
         rm -rf "$TMP_DIR"
     else
