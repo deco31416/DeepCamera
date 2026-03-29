@@ -2500,7 +2500,7 @@ async function scrapeServerMetrics() {
         try {
             const base = url.replace(/\/v1\/?$/, '');
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 3000);
+            const timeout = setTimeout(() => controller.abort(), 300000); // 5 minutes for colossal zero-copy graphs
             const res = await fetch(`${base}/metrics`, { signal: controller.signal });
             clearTimeout(timeout);
 
