@@ -55,16 +55,16 @@ log "Platform: $PLATFORM ($ARCH)"
 if [ "$PLATFORM" = "Linux" ]; then
     log "Linux: ensuring Coral Edge TPU system packages..."
     
-    MANUAL_LINUX="echo \"deb https://packages.cloud.google.com/apt coral-edgetpu-stable main\" | sudo tee /etc/apt/sources.list.d/coral-edgetpu.list
-curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
+    MANUAL_LINUX="curl -sL https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo gpg --dearmor -o /usr/share/keyrings/coral-edgetpu-archive-keyring.gpg
+echo \"deb [signed-by=/usr/share/keyrings/coral-edgetpu-archive-keyring.gpg] https://packages.cloud.google.com/apt coral-edgetpu-stable main\" | sudo tee /etc/apt/sources.list.d/coral-edgetpu.list
 sudo apt-get update
-sudo apt-get install -y libedgetpu1-max libusb-1.0-0"
+sudo apt-get install -y libedgetpu1-max libusb-1.0-0 python3-pycoral"
 
     ask_sudo "apt-get update && apt-get install -y --no-install-recommends curl gnupg && \
-              echo 'deb https://packages.cloud.google.com/apt coral-edgetpu-stable main' | tee /etc/apt/sources.list.d/coral-edgetpu.list && \
-              curl -sL https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add - && \
+              curl -sL https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dearmor -o /usr/share/keyrings/coral-edgetpu-archive-keyring.gpg && \
+              echo 'deb [signed-by=/usr/share/keyrings/coral-edgetpu-archive-keyring.gpg] https://packages.cloud.google.com/apt coral-edgetpu-stable main' | tee /etc/apt/sources.list.d/coral-edgetpu.list && \
               apt-get update && \
-              apt-get install -y libedgetpu1-max libusb-1.0-0 python3 python3-pip python3-venv" \
+              apt-get install -y libedgetpu1-max libusb-1.0-0 python3 python3-pip python3-venv python3-pycoral" \
              "Install native Google Coral APT repository and TPU runtime" \
              "$MANUAL_LINUX"
 
@@ -140,9 +140,12 @@ emit '{"event": "progress", "stage": "build", "message": "Fetching pycoral speci
 
 "$VENV_DIR/bin/python" -m pip install --upgrade pip >/dev/null 2>&1 || true
 
-# Explicitly fetch pycoral using the extra URL provided in the instructions
-if ! "$VENV_DIR/bin/python" -m pip install --extra-index-url https://google-coral.github.io/py-repo/ pycoral~=2.0; then
-    log "WARNING: pip install pycoral failed. Will attempt to install standard requirements anyway."
+# Explicitly fetch pycoral using the extra URL provided in the instructions, 
+# but only on macOS/Windows. On Linux, apt-get python3-pycoral provides it globally to our --system-site-packages venv.
+if [ "$PLATFORM" != "Linux" ]; then
+    if ! "$VENV_DIR/bin/python" -m pip install --extra-index-url https://google-coral.github.io/py-repo/ pycoral~=2.0; then
+        log "WARNING: pip install pycoral failed. Will attempt to install standard requirements anyway."
+    fi
 fi
 
 if ! "$VENV_DIR/bin/python" -m pip install -r "$SKILL_DIR/requirements.txt"; then
