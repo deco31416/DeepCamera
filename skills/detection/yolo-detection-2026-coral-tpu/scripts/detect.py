@@ -15,7 +15,9 @@ import os
 import sys
 import time
 import signal
+import threading
 from pathlib import Path
+from typing import Optional, Tuple, List, Dict, Any
 
 import numpy as np
 from PIL import Image
@@ -99,6 +101,75 @@ class PerfTracker:
         return stats
 
 
+class TPUHealthWatchdog:
+    """
+    Detects two distinct TPU failure modes:
+
+    1. Inference hang: interpreter.invoke() takes longer than `invoke_timeout_s`.
+       This happens when the USB connection is lost or the TPU kernel driver locks.
+       We run invoke() on a daemon thread and join with a timeout.
+
+    2. Silent stall: The TPU keeps returning results (no hang) but every result
+       is empty (0 detections) for `stall_frames` consecutive frames, AFTER the
+       skill had at least `min_active_frames` successful frames earlier.
+       This catches thermal throttling where the TPU resets internally.
+    """
+
+    def __init__(self, invoke_timeout_s=10, stall_frames=30, min_active_frames=5):
+        self.invoke_timeout_s = invoke_timeout_s
+        self.stall_frames = stall_frames
+        self.min_active_frames = min_active_frames
+
+        self._consecutive_zero = 0
+        self._total_frames_with_detections = 0
+        self._invoke_exception: Optional[Exception] = None
+
+    def run_invoke(self, interpreter):
+        """Run interpreter.invoke() with a hard timeout. Raises RuntimeError on hang."""
+        self._invoke_exception = None
+        completed = [False]
+
+        def _invoke():
+            try:
+                interpreter.invoke()
+                completed[0] = True
+            except Exception as e:
+                self._invoke_exception = e
+
+        t = threading.Thread(target=_invoke, daemon=True)
+        t.start()
+        t.join(timeout=self.invoke_timeout_s)
+
+        if t.is_alive():
+            # Thread is still blocked inside invoke() — TPU USB hang
+            raise RuntimeError(
+                f"TPU invoke() timed out after {self.invoke_timeout_s}s — "
+                "USB connection may be lost or TPU is locked up"
+            )
+
+        if self._invoke_exception is not None:
+            raise self._invoke_exception
+
+    def record(self, n_detections):
+        """Call after each frame. Returns a health status string or None."""
+        if n_detections > 0:
+            self._total_frames_with_detections += 1
+            self._consecutive_zero = 0
+            return None
+
+        self._consecutive_zero += 1
+
+        # Only fire the stall alert after the TPU was genuinely producing results
+        if (self._total_frames_with_detections >= self.min_active_frames
+                and self._consecutive_zero >= self.stall_frames):
+            return "stall"
+
+        return None
+
+    def reset_stall(self):
+        self._consecutive_zero = 0
+
+
 class CoralDetector:
     """Edge TPU object detector using ai-edge-litert with libedgetpu delegate."""
 
@@ -108,6 +179,11 @@ class CoralDetector:
         self.input_size = int(params.get("input_size", 320))
         self.interpreter = None
         self.tpu_count = 0
+        self.watchdog = TPUHealthWatchdog(
+            invoke_timeout_s=10,
+            stall_frames=30,
+            min_active_frames=5,
+        )
 
         # Parse target classes
         classes_str = params.get("classes", "person,car,dog,cat")
@@ -201,9 +277,13 @@ class CoralDetector:
         input_data = np.expand_dims(np.array(img_resized, dtype=np.uint8), axis=0)
         self.interpreter.set_tensor(input_details["index"], input_data)
 
-        # Run inference
+        # Run inference with hard timeout via watchdog
         t_pre = time.perf_counter()
-        self.interpreter.invoke()
+        try:
+            self.watchdog.run_invoke(self.interpreter)
+        except RuntimeError as e:
+            log(f"TPU invoke() failed: {e}")
+            return [], {}, "hang"
         t_infer = time.perf_counter()
 
         # Parse output tensors (works for both Edge TPU and CPU)
@@ -254,7 +334,10 @@ class CoralDetector:
             "total": round((t_post - t0) * 1000, 2),
         }
 
-        return objects, timings
+        # Record with watchdog — returns "stall" if TPU has gone silent
+        health = self.watchdog.record(len(objects))
+
+        return objects, timings, health
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -347,7 +430,20 @@ def main():
                 })
                 continue
 
-            objects, timings = detector.detect_frame(frame_path)
+            objects, timings, health = detector.detect_frame(frame_path)
+
+            # Check for TPU hang (invoke timeout)
+            if health == "hang":
+                emit_json({
+                    "event": "tpu_error",
+                    "frame_id": frame_id,
+                    "camera_id": camera_id,
+                    "error": "invoke_timeout",
+                    "message": "TPU invoke() timed out — USB connection may be lost",
+                    "retriable": True,
+                })
+                # Exit with code 1 so Aegis restarts us
+                sys.exit(1)
 
             # Emit detections
             emit_json({
@@ -357,6 +453,18 @@ def main():
                 "timestamp": timestamp,
                 "objects": objects,
             })
+
+            # Check for silent stall (zero results for too long)
+            if health == "stall":
+                emit_json({
+                    "event": "tpu_error",
+                    "frame_id": frame_id,
+                    "camera_id": camera_id,
+                    "error": "stall",
+                    "message": "TPU has returned 0 detections for 30 consecutive frames — possible thermal throttle or silent reset",
+                    "retriable": True,
+                })
+                detector.watchdog.reset_stall()  # Prevent repeated spam; let Aegis decide to restart
 
             # Track performance
             if timings:
