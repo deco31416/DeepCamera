@@ -192,14 +192,24 @@ class CoralDetector:
         self._load_model()
 
     def _find_model_path(self):
-        """Find the compiled Edge TPU model."""
+        """Find the compiled Edge TPU model.
+
+        ultralytics format="edgetpu" produces:
+          <model>_saved_model/<model>_full_integer_quant_edgetpu.tflite
+        Our compile_model.py copies it to models/ so we look there first.
+        """
         model_dir = Path("/app/models")
         script_dir = Path(__file__).parent.parent / "models"
 
         for d in [model_dir, script_dir]:
             if not d.exists():
                 continue
-            for pattern in ["*_edgetpu.tflite", "*.tflite"]:
+            # ultralytics edgetpu naming: *_full_integer_quant_edgetpu.tflite
+            for pattern in [
+                "*_full_integer_quant_edgetpu.tflite",
+                "*_edgetpu.tflite",
+                "*.tflite",
+            ]:
                 matches = list(d.glob(pattern))
                 if matches:
                     return str(matches[0])
