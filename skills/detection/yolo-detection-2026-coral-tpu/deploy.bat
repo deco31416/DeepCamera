@@ -77,6 +77,11 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
+REM Copy edgetpu.dll and libusb-1.0.dll locally to bypass Python 3.8+ DLL PATH load issues
+if not exist "%SKILL_DIR%lib" mkdir "%SKILL_DIR%lib"
+copy /Y "libedgetpu\direct\x64_windows\edgetpu.dll" "%SKILL_DIR%lib\edgetpu.dll" >nul 2>&1
+copy /Y "third_party\libusb_win\libusb-1.0.dll" "%SKILL_DIR%lib\libusb-1.0.dll" >nul 2>&1
+
 cd /d "%SKILL_DIR%"
 rmdir /S /Q "%TMP_DIR%" 2>nul
 echo %LOG_PREFIX% Edge TPU runtime installed. 1>&2

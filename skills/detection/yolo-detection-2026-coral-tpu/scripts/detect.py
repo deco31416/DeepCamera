@@ -46,6 +46,9 @@ def _edgetpu_lib_name():
     elif system == "Darwin":
         return "libedgetpu.1.dylib"
     elif system == "Windows":
+        local_dll = Path(__file__).parent.parent / "lib" / "edgetpu.dll"
+        if local_dll.exists():
+            return str(local_dll.resolve())
         return "edgetpu.dll"
     return "libedgetpu.so.1"
 
