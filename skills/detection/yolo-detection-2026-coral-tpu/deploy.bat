@@ -172,20 +172,19 @@ for %%M in (
 if "!MODEL_FOUND!"=="false" (
     echo %LOG_PREFIX% WARNING: No pre-compiled EdgeTPU model found in models\. 1>&2
     echo {"event": "progress", "stage": "model", "message": "No EdgeTPU model found — will fall back to CPU inference (SSD MobileNet)"}
+) else (
+    echo %LOG_PREFIX% Found model: !MODEL_FILE! 1>&2
+    echo {"event": "progress", "stage": "model", "message": "Edge TPU model ready: yolo26n_edgetpu.tflite"}
+)
 
-    REM Download SSD MobileNet as a CPU fallback so the skill is functional immediately
+REM Download SSD MobileNet as a universal CPU fallback so the skill is unconditionally functional
+if not exist "%SKILL_DIR%models\ssd_mobilenet_v2_coco_quant_postprocess.tflite" (
     echo %LOG_PREFIX% Downloading SSD MobileNet CPU fallback model... 1>&2
     if not exist "%SKILL_DIR%models" mkdir "%SKILL_DIR%models"
-
     powershell -NoProfile -Command ^
       "Invoke-WebRequest -Uri 'https://github.com/google-coral/edgetpu/raw/master/test_data/ssd_mobilenet_v2_coco_quant_postprocess_edgetpu.tflite' -OutFile '%SKILL_DIR%models\ssd_mobilenet_v2_coco_quant_postprocess_edgetpu.tflite' -UseBasicParsing" 2>nul
     powershell -NoProfile -Command ^
       "Invoke-WebRequest -Uri 'https://github.com/google-coral/edgetpu/raw/master/test_data/ssd_mobilenet_v2_coco_quant_postprocess.tflite' -OutFile '%SKILL_DIR%models\ssd_mobilenet_v2_coco_quant_postprocess.tflite' -UseBasicParsing" 2>nul
-
-    echo {"event": "progress", "stage": "model", "message": "SSD MobileNet fallback downloaded. For YOLO 2026, run docker/compile.sh on Linux or macOS."}
-) else (
-    echo %LOG_PREFIX% Found model: !MODEL_FILE! 1>&2
-    echo {"event": "progress", "stage": "model", "message": "Edge TPU model ready: yolo26n_edgetpu.tflite"}
 )
 
 REM ─── Step 6: Probe for Edge TPU devices ──────────────────────────────────────

@@ -266,7 +266,16 @@ class CoralDetector:
         # Use a non-edgetpu model if available
         cpu_path = model_path.replace("_edgetpu.tflite", ".tflite")
         if not os.path.exists(cpu_path):
-            cpu_path = model_path
+            universal_fallback = os.path.join(os.path.dirname(model_path), "ssd_mobilenet_v2_coco_quant_postprocess.tflite")
+            if os.path.exists(universal_fallback):
+                log("Falling back to universal SSD MobileNet CPU model")
+                cpu_path = universal_fallback
+            elif "edgetpu" in model_path.lower():
+                log("FATAL: Cannot load Edge TPU compiled model on pure CPU, and no fallback model exists.")
+                emit_json({"event": "error", "message": "No Edge TPU plugged in and no pure-CPU fallback model found.", "retriable": False})
+                sys.exit(1)
+            else:
+                cpu_path = model_path
 
         try:
             self.interpreter = litert.Interpreter(model_path=cpu_path)
