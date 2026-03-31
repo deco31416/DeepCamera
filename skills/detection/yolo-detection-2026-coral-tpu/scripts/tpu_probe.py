@@ -11,9 +11,15 @@ Usage:
 """
 
 import json
-import platform
 import sys
+from pathlib import Path
 
+# ─── Windows DLL search path fix (MUST happen before any native import) ───────
+# Python 3.8+ no longer searches PATH for DLLs loaded by native C extensions.
+_LIB_DIR = Path(__file__).parent.parent / "lib"
+if sys.platform == "win32" and _LIB_DIR.exists():
+    import os
+    os.add_dll_directory(str(_LIB_DIR))
 
 def _edgetpu_lib_name():
     """Return the platform-specific libedgetpu shared library name."""
@@ -25,7 +31,7 @@ def _edgetpu_lib_name():
     elif system == "Darwin":
         return "libedgetpu.1.dylib"
     elif system == "Windows":
-        local_dll = Path(__file__).parent.parent / "lib" / "edgetpu.dll"
+        local_dll = _LIB_DIR / "edgetpu.dll"
         if local_dll.exists():
             return str(local_dll.resolve())
         return "edgetpu.dll"

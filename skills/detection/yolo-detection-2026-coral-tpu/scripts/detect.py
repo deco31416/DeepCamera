@@ -19,6 +19,14 @@ import threading
 from pathlib import Path
 from typing import Optional, Tuple, List, Dict, Any
 
+# ─── Windows DLL search path fix (MUST happen before any native import) ───────
+# Python 3.8+ no longer searches PATH for DLLs loaded by native C extensions.
+# We must register our local lib/ directory so that when ai_edge_litert loads
+# edgetpu.dll, Windows can also find libusb-1.0.dll in the same folder.
+_LIB_DIR = Path(__file__).parent.parent / "lib"
+if sys.platform == "win32" and _LIB_DIR.exists():
+    os.add_dll_directory(str(_LIB_DIR))
+
 import numpy as np
 from PIL import Image
 
@@ -36,7 +44,7 @@ try:
 except ImportError:
     sys.stderr.write("[coral-detect] WARNING: ai-edge-litert not installed\n")
 
-# Determine the correct delegate library name per platform
+
 def _edgetpu_lib_name():
     """Return the platform-specific libedgetpu shared library name."""
     import platform
@@ -46,7 +54,11 @@ def _edgetpu_lib_name():
     elif system == "Darwin":
         return "libedgetpu.1.dylib"
     elif system == "Windows":
-        local_dll = Path(__file__).parent.parent / "lib" / "edgetpu.dll"
+        # os.add_dll_directory() already registered our lib/ folder above,
+        # so Windows can resolve all transitive dependencies (libusb-1.0.dll etc.).
+        # Use just the bare name so load_delegate() finds it through the
+        # registered DLL directories rather than trying to parse a full path.
+        local_dll = _LIB_DIR / "edgetpu.dll"
         if local_dll.exists():
             return str(local_dll.resolve())
         return "edgetpu.dll"

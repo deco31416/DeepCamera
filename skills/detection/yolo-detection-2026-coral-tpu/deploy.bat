@@ -27,9 +27,21 @@ cd /d "%SKILL_DIR%"
 echo %LOG_PREFIX% Platform: Windows 1>&2
 echo {"event": "progress", "stage": "platform", "message": "Windows installer starting..."}
 
-REM ─── Step 1: Edge TPU Runtime (UAC elevated install) ─────────────────────────
-REM Download the official Google Edge TPU runtime for Windows and install it.
-REM This places edgetpu.dll into C:\Windows\System32 (requires admin rights).
+REM ─── Step 1: Edge TPU Runtime (UAC elevated install + local bundle) ─────────
+REM Two-pronged approach:
+REM   A) Run install.bat elevated  → registers WinUSB driver + edgetpu.dll in System32
+REM   B) Copy DLLs to local lib\   → Python os.add_dll_directory() picks them up
+REM Approach B always happens. Approach A adds the USB device driver (needed for hardware).
+
+REM Check for VC++ 2019 Redistributable (required by edgetpu.dll)
+echo %LOG_PREFIX% Checking for Visual C++ 2019 redistributable... 1>&2
+powershell -NoProfile -Command "if (Test-Path 'HKLM:\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64') { exit 0 } else { exit 1 }" >nul 2>&1
+if %errorlevel% neq 0 (
+    echo %LOG_PREFIX% Installing Visual C++ 2019 Redistributable... 1>&2
+    echo {"event": "progress", "stage": "platform", "message": "Installing Visual C++ 2019 Redistributable (required for edgetpu.dll)..."}
+    powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://aka.ms/vs/16/release/vc_redist.x64.exe' -OutFile '%TEMP%\vc_redist.x64.exe' -UseBasicParsing"
+    "%TEMP%\vc_redist.x64.exe" /install /quiet /norestart
+)
 
 echo %LOG_PREFIX% Downloading Edge TPU runtime... 1>&2
 echo {"event": "progress", "stage": "platform", "message": "Downloading Google Edge TPU runtime (edgetpu.dll)..."}
@@ -38,54 +50,54 @@ set "TMP_DIR=%TEMP%\coral_tpu_install_%RANDOM%"
 mkdir "%TMP_DIR%"
 cd /d "%TMP_DIR%"
 
-powershell -NoProfile -Command ^
-  "Invoke-WebRequest -Uri 'https://github.com/google-coral/libedgetpu/releases/download/release-grouper/edgetpu_runtime_20221024.zip' -OutFile 'edgetpu_runtime_20221024.zip' -UseBasicParsing"
+powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://github.com/google-coral/libedgetpu/releases/download/release-grouper/edgetpu_runtime_20221024.zip' -OutFile 'edgetpu_runtime_20221024.zip' -UseBasicParsing"
 if %errorlevel% neq 0 (
     echo %LOG_PREFIX% ERROR: Failed to download Edge TPU runtime. Check internet connectivity. 1>&2
-    echo {"event": "error", "stage": "platform", "message": "Download failed — check internet connectivity"}
+    echo {"event": "error", "stage": "platform", "message": "Download failed - check internet connectivity"}
     cd /d "%SKILL_DIR%"
     rmdir /S /Q "%TMP_DIR%" 2>nul
     exit /b 1
 )
 
-powershell -NoProfile -Command ^
-  "Expand-Archive -Path 'edgetpu_runtime_20221024.zip' -DestinationPath '.' -Force"
+powershell -NoProfile -Command "Expand-Archive -Path 'edgetpu_runtime_20221024.zip' -DestinationPath '.' -Force"
 cd edgetpu_runtime
 
-echo %LOG_PREFIX% Prompting for Administrator rights to install drivers... 1>&2
-echo {"event": "progress", "stage": "platform", "message": "A UAC prompt will appear. Approve it to install edgetpu.dll system-wide."}
+echo %LOG_PREFIX% Prompting for Administrator rights to install system driver... 1>&2
+echo {"event": "progress", "stage": "platform", "message": "A UAC prompt will appear. Approve it to install the Coral WinUSB driver system-wide."}
 
-REM Run install.bat elevated and wait for it to complete.
-REM The '<nul' suppresses the clock-speed interactive prompt (uses the default: standard).
-powershell -NoProfile -Command ^
-  "Start-Process -FilePath 'cmd.exe' -ArgumentList '/c install.bat <nul' -WorkingDirectory '%TMP_DIR%\edgetpu_runtime' -Verb RunAs -Wait"
+REM Write 'N' to a file to suppress the max-frequency clock-speed prompt inside install.bat
+echo N> "%TMP_DIR%\clock_answer.txt"
+
+REM Run install.bat elevated. We redirect from our pre-written answer file.
+powershell -NoProfile -Command "Start-Process -FilePath 'cmd.exe' -ArgumentList "/c install.bat < '%TMP_DIR%\clock_answer.txt'" -WorkingDirectory '%TMP_DIR%\edgetpu_runtime' -Verb RunAs -Wait" 2>nul
 
 if %errorlevel% neq 0 (
-    echo.
-    echo [MANUAL SETUP REQUIRED]
-    echo The UAC prompt was skipped or the install was cancelled.
-    echo.
-    echo To install manually, open an Administrator Command Prompt and run:
-    echo.
-    echo   cd %TMP_DIR%\edgetpu_runtime
-    echo   install.bat
-    echo.
-    echo Then re-run this deployment script.
-    echo {"event": "error", "stage": "platform", "message": "UAC install cancelled — manual setup required (see console)"}
-    cd /d "%SKILL_DIR%"
-    rmdir /S /Q "%TMP_DIR%" 2>nul
-    exit /b 1
+    echo %LOG_PREFIX% System-wide driver install skipped (UAC declined). Will use local DLL bundle. 1>&2
+    echo {"event": "progress", "stage": "platform", "message": "UAC declined - using local DLL bundle. Hardware TPU requires the system driver; re-install to retry."}
+) else (
+    echo %LOG_PREFIX% System-wide Edge TPU driver installed. 1>&2
+    echo {"event": "progress", "stage": "platform", "message": "Coral WinUSB driver installed system-wide."}
 )
 
-REM Copy edgetpu.dll and libusb-1.0.dll locally to bypass Python 3.8+ DLL PATH load issues
+REM Always copy DLLs to local lib\ — Python 3.8+ os.add_dll_directory() uses this.
+REM This works even if the UAC install above was skipped.
 if not exist "%SKILL_DIR%lib" mkdir "%SKILL_DIR%lib"
 copy /Y "libedgetpu\direct\x64_windows\edgetpu.dll" "%SKILL_DIR%lib\edgetpu.dll" >nul 2>&1
 copy /Y "third_party\libusb_win\libusb-1.0.dll" "%SKILL_DIR%lib\libusb-1.0.dll" >nul 2>&1
 
+if not exist "%SKILL_DIR%lib\edgetpu.dll" (
+    echo %LOG_PREFIX% ERROR: Could not extract edgetpu.dll from runtime zip. 1>&2
+    echo {"event": "error", "stage": "platform", "message": "Failed to extract edgetpu.dll - runtime zip may be corrupt"}
+    cd /d "%SKILL_DIR%"
+    rmdir /S /Q "%TMP_DIR%" 2>nul
+    exit /b 1
+)
+
+echo %LOG_PREFIX% edgetpu.dll bundled to lib\ for Python DLL search. 1>&2
+echo {"event": "progress", "stage": "platform", "message": "Edge TPU DLLs ready."}
+
 cd /d "%SKILL_DIR%"
 rmdir /S /Q "%TMP_DIR%" 2>nul
-echo %LOG_PREFIX% Edge TPU runtime installed. 1>&2
-echo {"event": "progress", "stage": "platform", "message": "Edge TPU runtime installed successfully."}
 
 REM ─── Step 2: Find Python ─────────────────────────────────────────────────────
 REM ai-edge-litert supports Python 3.9–3.13. We prefer the system default.
