@@ -104,7 +104,7 @@ if exist "%SKILL_DIR%driver\UsbDk_1.0.22_x64.msi" (
     set "TMP_DIR=%TEMP%\coral_drv_%RANDOM%"
     mkdir "%TMP_DIR%"
     echo @echo off > "%TMP_DIR%\install_coral_driver.bat"
-    echo msiexec /i "%SKILL_DIR%driver\UsbDk_1.0.22_x64.msi" /qn /norestart >> "%TMP_DIR%\install_coral_driver.bat"
+    echo start /wait "" msiexec /i "%SKILL_DIR%driver\UsbDk_1.0.22_x64.msi" /qn /norestart >> "%TMP_DIR%\install_coral_driver.bat"
 
     echo %LOG_PREFIX% Prompting for Administrator rights to install Coral UsbDk driver... 1>&2
     echo {"event": "progress", "stage": "platform", "message": "A UAC prompt will appear. Approve it to install the Coral USB driver (UsbDk)."}
