@@ -15,17 +15,27 @@ echo.
 :: 1. Verify wsl exists
 where wsl >nul 2>nul
 if %errorlevel% neq 0 (
-    call :ColorText 0C "ERROR: Windows Subsystem for Linux (WSL) is not installed."
-    echo Please install WSL by running 'wsl --install' in an Administrator terminal.
-    exit /b 1
+    echo [AEGIS_PAUSE_MODAL] file=install_wsl.bat; msg=Windows Subsystem for Linux (WSL) is required to run the Coral TPU natively. Please click 'Launch Installer' (requires Admin) to install it, then verify your machine restarts. Once back, click 'Done'.
+    set /p DUMMY="Waiting for user to install WSL and click Done..."
+    
+    where wsl >nul 2>nul
+    if %errorlevel% neq 0 (
+        call :ColorText 0C "ERROR: WSL is still not installed. Aborting deployment."
+        exit /b 1
+    )
 )
 
 :: 2. Verify usbipd exists
 where usbipd >nul 2>nul
 if %errorlevel% neq 0 (
-    call :ColorText 0E "WARNING: usbipd is not installed. Please install it:"
-    echo Run: winget install usbipd -e
-    exit /b 1
+    echo [AEGIS_PAUSE_MODAL] file=install_usbipd.bat; msg=usbipd-win is required to pass the Coral TPU to WSL. Please click 'Launch Installer' to install it via winget, then click 'Done'.
+    set /p DUMMY="Waiting for user to install usbipd and click Done..."
+    
+    where usbipd >nul 2>nul
+    if %errorlevel% neq 0 (
+        call :ColorText 0C "ERROR: usbipd is still not installed. Aborting deployment."
+        exit /b 1
+    )
 )
 
 :: 3. Inform about hardware binding
