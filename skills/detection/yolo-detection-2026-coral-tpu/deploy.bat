@@ -60,41 +60,51 @@ if %errorlevel% neq 0 (
 )
 
 powershell -NoProfile -Command "Expand-Archive -Path 'edgetpu_runtime_20221024.zip' -DestinationPath '.' -Force"
-cd edgetpu_runtime
 
-echo %LOG_PREFIX% Prompting for Administrator rights to install system driver... 1>&2
-echo {"event": "progress", "stage": "platform", "message": "A UAC prompt will appear. Approve it to install the Coral WinUSB driver system-wide."}
-
-REM Write 'N' to a file to suppress the max-frequency clock-speed prompt inside install.bat
-echo N> "%TMP_DIR%\clock_answer.txt"
-
-REM Run install.bat elevated. We redirect from our pre-written answer file.
-powershell -NoProfile -Command "Start-Process -FilePath 'cmd.exe' -ArgumentList "/c install.bat < '%TMP_DIR%\clock_answer.txt'" -WorkingDirectory '%TMP_DIR%\edgetpu_runtime' -Verb RunAs -Wait" 2>nul
-
-if %errorlevel% neq 0 (
-    echo %LOG_PREFIX% System-wide driver install skipped (UAC declined). Will use local DLL bundle. 1>&2
-    echo {"event": "progress", "stage": "platform", "message": "UAC declined - using local DLL bundle. Hardware TPU requires the system driver; re-install to retry."}
-) else (
-    echo %LOG_PREFIX% System-wide Edge TPU driver installed. 1>&2
-    echo {"event": "progress", "stage": "platform", "message": "Coral WinUSB driver installed system-wide."}
-)
-
-REM Always copy DLLs to local lib\ — Python 3.8+ os.add_dll_directory() uses this.
-REM This works even if the UAC install above was skipped.
-if not exist "%SKILL_DIR%lib" mkdir "%SKILL_DIR%lib"
-copy /Y "libedgetpu\direct\x64_windows\edgetpu.dll" "%SKILL_DIR%lib\edgetpu.dll" >nul 2>&1
-copy /Y "third_party\libusb_win\libusb-1.0.dll" "%SKILL_DIR%lib\libusb-1.0.dll" >nul 2>&1
-
-if not exist "%SKILL_DIR%lib\edgetpu.dll" (
-    echo %LOG_PREFIX% ERROR: Could not extract edgetpu.dll from runtime zip. 1>&2
-    echo {"event": "error", "stage": "platform", "message": "Failed to extract edgetpu.dll - runtime zip may be corrupt"}
+REM edgetpu_runtime_20221024.zip extracts to an "edgetpu_runtime" subfolder
+set "RUNTIME_DIR=%TMP_DIR%\edgetpu_runtime"
+if not exist "%RUNTIME_DIR%\install.bat" (
+    echo %LOG_PREFIX% ERROR: Runtime zip did not extract correctly. 1>&2
+    echo {"event": "error", "stage": "platform", "message": "edgetpu_runtime_20221024.zip extraction failed"}
     cd /d "%SKILL_DIR%"
     rmdir /S /Q "%TMP_DIR%" 2>nul
     exit /b 1
 )
 
+REM Copy DLLs to local lib\ BEFORE the UAC step so the skill works even if UAC is declined.
+REM Python 3.8+ os.add_dll_directory() picks these up — this is the primary loading mechanism.
+if not exist "%SKILL_DIR%lib" mkdir "%SKILL_DIR%lib"
+copy /Y "%RUNTIME_DIR%\libedgetpu\direct\x64_windows\edgetpu.dll" "%SKILL_DIR%lib\edgetpu.dll" >nul 2>&1
+copy /Y "%RUNTIME_DIR%\third_party\libusb_win\libusb-1.0.dll" "%SKILL_DIR%lib\libusb-1.0.dll" >nul 2>&1
+
+if not exist "%SKILL_DIR%lib\edgetpu.dll" (
+    echo %LOG_PREFIX% ERROR: Could not copy edgetpu.dll - zip structure may have changed. 1>&2
+    echo {"event": "error", "stage": "platform", "message": "Failed to extract edgetpu.dll from runtime zip"}
+    cd /d "%SKILL_DIR%"
+    rmdir /S /Q "%TMP_DIR%" 2>nul
+    exit /b 1
+)
 echo %LOG_PREFIX% edgetpu.dll bundled to lib\ for Python DLL search. 1>&2
-echo {"event": "progress", "stage": "platform", "message": "Edge TPU DLLs ready."}
+
+REM Now attempt system-wide WinUSB driver install (needed for actual hardware).
+REM This step is non-fatal — skip it by denying UAC; CPU fallback still works.
+echo %LOG_PREFIX% Prompting for Administrator rights to install Coral WinUSB driver... 1>&2
+echo {"event": "progress", "stage": "platform", "message": "A UAC prompt will appear. Approve it to install the Coral WinUSB driver (required for hardware TPU)."}
+
+REM Write answer to clock-speed question ("N" = standard clock, not max)
+echo N> "%TMP_DIR%\clock_answer.txt"
+
+REM PowerShell Start-Process with proper quoting: inner quotes escaped with `
+powershell -NoProfile -Command ^
+    "Start-Process cmd.exe -ArgumentList '/c install.bat < \"%TMP_DIR%\clock_answer.txt\"' -WorkingDirectory '%RUNTIME_DIR%' -Verb RunAs -Wait" 2>nul
+
+if %errorlevel% neq 0 (
+    echo %LOG_PREFIX% UAC declined or driver install failed - hardware TPU needs driver. Local DLL bundle will be used. 1>&2
+    echo {"event": "progress", "stage": "platform", "message": "UAC skipped. Local edgetpu.dll bundle ready. To enable hardware, re-install and approve the UAC prompt."}
+) else (
+    echo %LOG_PREFIX% Coral WinUSB driver installed system-wide. 1>&2
+    echo {"event": "progress", "stage": "platform", "message": "Coral WinUSB driver installed. Edge TPU hardware is ready."}
+)
 
 cd /d "%SKILL_DIR%"
 rmdir /S /Q "%TMP_DIR%" 2>nul

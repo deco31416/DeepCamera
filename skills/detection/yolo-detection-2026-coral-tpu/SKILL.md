@@ -4,7 +4,10 @@ description: "Google Coral Edge TPU — real-time object detection natively via 
 version: 1.0.0
 icon: assets/icon.png
 entry: scripts/detect.py
-deploy: deploy.sh
+deploy:
+  windows: deploy.bat
+  linux: deploy.sh
+  macos: deploy.sh
 runtime: python
 
 requirements:
@@ -84,9 +87,8 @@ Real-time object detection natively utilizing the Google Coral Edge TPU accelera
 ## Requirements
 
 - **Google Coral USB Accelerator** (USB 3.0 port recommended)
-- **libusb** framework (installed automatically on Linux/macOS)
-- Python 3 with the native `pycoral` environment
-- Adequate cooling for sustained inference
+- Python 3.9–3.13
+- On Windows: Microsoft Visual C++ 2019 Redistributable (auto-installed by `deploy.bat`)
 
 ## How It Works
 
@@ -158,8 +160,18 @@ Same JSONL as `yolo-detection-2026`:
 
 ## Installation
 
+### Windows
+Run `deploy.bat` — this will:
+1. Check and install Visual C++ 2019 Redistributable if missing
+2. Download the Google Edge TPU runtime and prompt for UAC to install the WinUSB device driver
+3. Bundle `edgetpu.dll` and `libusb-1.0.dll` locally for Python DLL search
+4. Create a Python virtual environment and install `ai-edge-litert`, `numpy`, `Pillow`
+5. Download the SSD MobileNet CPU fallback model
+6. Probe for connected Coral USB hardware
+
+### Linux / macOS
 ```bash
 ./deploy.sh
 ```
 
-The deployer builds the local native Python virtual environment inline with global TPU hooks. No Docker containers or abstract container-bindings are used.
+The deployer builds the local Python virtual environment and installs the Edge TPU runtime. No Docker required.
