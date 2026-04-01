@@ -32,10 +32,14 @@ from PIL import Image
 HAS_LITERT = False
 
 try:
-    import tflite_runtime.interpreter as litert # interpreter as litert
+    import ai_edge_litert.interpreter as litert # Modern LiteRT (rebranded)
     HAS_LITERT = True
 except ImportError:
-    sys.stderr.write("[coral-detect] WARNING: ai-edge-litert not installed\n")
+    try:
+        import tflite_runtime.interpreter as litert # Legacy PyCoral/TF
+        HAS_LITERT = True
+    except ImportError:
+        sys.stderr.write("[coral-detect] WARNING: ai-edge-litert or tflite_runtime not installed\n")
 
 
 def log(message: str) -> None:
