@@ -1,0 +1,58 @@
+name: Sync Upstream (SharpAI/DeepCamera)
+
+on:
+  schedule:
+    # Corre todos los días a las 06:00 UTC
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    # También se puede lanzar manualmente desde GitHub Actions
+
+jobs:
+  sync:
+    name: Sync master & develop from upstream
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/SharpAI/DeepCamera.git
+          git fetch upstream
+
+      # ── Sincronizar master ──────────────────────────────────────────────────
+      - name: Sync master
+        run: |
+          git checkout master
+          git merge --ff-only upstream/master || git merge -X theirs upstream/master --no-edit
+          git push origin master
+
+      # ── Sincronizar develop ─────────────────────────────────────────────────
+      - name: Sync develop
+        run: |
+          git checkout develop 2>/dev/null || git checkout -b develop origin/develop 2>/dev/null || git checkout -b develop upstream/develop
+          git merge --ff-only upstream/develop || git merge -X theirs upstream/develop --no-edit
+          git push origin develop
+
+      # ── Actualizar rama deco31416 desde master ──────────────────────────────
+      - name: Update deco31416 branch from master
+        run: |
+          # Si la rama deco31416 no existe en origin, la crea desde master
+          if git ls-remote --exit-code --heads origin deco31416; then
+            git checkout deco31416
+            git merge --no-ff master -m "chore: merge latest upstream master into deco31416 [auto-sync]" || echo "Merge conflicts detected, skipping deco31416 update"
+          else
+            git checkout -b deco31416 origin/master
+          fi
+          git push origin deco31416 || echo "deco31416 push skipped (possible conflicts)"
